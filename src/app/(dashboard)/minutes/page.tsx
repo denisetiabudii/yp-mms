@@ -1,174 +1,137 @@
-
 "use client";
 
 import * as React from "react";
+import { Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
-  FileText,
-  Search,
-  Plus,
-  MoreHorizontal,
   CalendarDays,
-  UserRound,
-  Clock3,
   CheckCircle2,
+  Clock3,
   FileClock,
+  FileText,
+  Lock,
+  RotateCcw,
+  Search,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
+  MEETINGS,
+  MINUTE_STATUSES,
+  classificationStyles,
+  formatDate,
+  getUnit,
+  minuteStatusStyles,
+  type MinuteStatus,
+} from "@/lib/meetings";
+import { MINUTES } from "@/lib/minutes";
 
-const minutesData = [
-  {
-    id: "NTL-001",
-    title: "Notulen Rapat Koordinasi Bulanan",
-    meeting: "Rapat Koordinasi Bulanan",
-    date: "2026-11-05",
-    author: "Admin Organisasi",
-    status: "Menunggu Approval",
-  },
-  {
-    id: "NTL-002",
-    title: "Notulen Evaluasi Program Kerja",
-    meeting: "Evaluasi Program Kerja",
-    date: "2026-11-02",
-    author: "Sekretaris Divisi",
-    status: "Disetujui",
-  },
-  {
-    id: "NTL-003",
-    title: "Notulen Rapat Keuangan",
-    meeting: "Rapat Keuangan Organisasi",
-    date: "2026-10-28",
-    author: "Bendahara",
-    status: "Draft",
-  },
-  {
-    id: "NTL-004",
-    title: "Notulen Pembahasan Agenda Tahunan",
-    meeting: "Pembahasan Agenda Tahunan",
-    date: "2026-10-25",
-    author: "Sekretaris",
-    status: "Disetujui",
-  },
-  {
-    id: "NTL-005",
-    title: "Notulen Koordinasi Antar Divisi",
-    meeting: "Koordinasi Antar Divisi",
-    date: "2026-10-20",
-    author: "Admin Organisasi",
-    status: "Menunggu Approval",
-  },
-];
+/** Tab status sesuai PRD bagian 13: Draft, Menunggu review, Disetujui, Revisi. */
+const TABS = ["Semua", ...MINUTE_STATUSES.filter((s) => s !== "Belum dibuat")] as const;
+type Tab = (typeof TABS)[number];
 
-const statusStyles: Record<string, string> = {
-  Draft: "border-slate-200 bg-slate-100 text-slate-600",
-  "Menunggu Approval": "border-amber-200 bg-amber-100 text-amber-700",
-  Disetujui: "border-emerald-200 bg-emerald-100 text-emerald-700",
-  Ditolak: "border-red-200 bg-red-100 text-red-700",
-};
-
+/**
+ * Pembungkus: membaca `?q=` dari URL (dikirim kolom cari di header).
+ * useSearchParams wajib berada di dalam <Suspense>. `key={query}` membuat
+ * tampilan dibuat ulang saat query berubah sehingga kolom cari ikut terisi.
+ */
 export default function NotulenPage() {
-  const [search, setSearch] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<string | null>("Semua");
+  return (
+    <Suspense fallback={null}>
+      <MinutesFromUrl />
+    </Suspense>
+  );
+}
 
-  const filteredMinutes = minutesData.filter((item) => {
-    const matchesSearch =
-      item.title.toLowerCase().includes(search.toLowerCase()) ||
-      item.id.toLowerCase().includes(search.toLowerCase()) ||
-      item.meeting.toLowerCase().includes(search.toLowerCase());
+function MinutesFromUrl() {
+  const query = useSearchParams().get("q") ?? "";
 
-    const matchesStatus =
-  !statusFilter || statusFilter === "Semua" || item.status === statusFilter;
+  return <MinutesView key={query} initialSearch={query} />;
+}
 
-    return matchesSearch && matchesStatus;
+function MinutesView({ initialSearch }: { initialSearch: string }) {
+  const [search, setSearch] = React.useState(initialSearch);
+  const [tab, setTab] = React.useState<Tab>("Semua");
+
+  // Gabungkan rapat + notulennya. Status & versi diambil dari data notulen.
+  const rows = MEETINGS.flatMap((meeting) => {
+    const minute = MINUTES.find((m) => m.meetingId === meeting.id);
+    const status: MinuteStatus = minute?.status ?? meeting.minuteStatus;
+
+    if (status === "Belum dibuat") return [];
+
+    return [
+      {
+        meeting,
+        status,
+        version: minute?.versions.length ?? 0,
+        updatedAt: minute?.events[0]?.at ?? "",
+      },
+    ];
   });
 
-  const draftCount = minutesData.filter(
-    (item) => item.status === "Draft",
-  ).length;
+  // Rapat selesai yang belum punya notulen: perlu ditindaklanjuti notulis.
+  const missing = MEETINGS.filter(
+    (meeting) =>
+      meeting.status === "Selesai" &&
+      !MINUTES.some((m) => m.meetingId === meeting.id) &&
+      meeting.minuteStatus === "Belum dibuat",
+  );
 
-  const approvalCount = minutesData.filter(
-    (item) => item.status === "Menunggu Approval",
-  ).length;
+  const keyword = search.trim().toLowerCase();
 
-  const approvedCount = minutesData.filter(
-    (item) => item.status === "Disetujui",
-  ).length;
+  const filtered = rows.filter(({ meeting, status }) => {
+    const haystack = [
+      meeting.title,
+      meeting.number,
+      meeting.leader,
+      meeting.notetaker,
+      getUnit(meeting.unitId)?.name ?? "",
+      formatDate(meeting.date),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return (!keyword || haystack.includes(keyword)) && (tab === "Semua" || status === tab);
+  });
+
+  const count = (s: MinuteStatus) => rows.filter((row) => row.status === s).length;
+
+  const summary = [
+    { label: "Total Notulen", value: rows.length, icon: FileText, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Draft", value: count("Draft"), icon: FileClock, color: "text-slate-600", bg: "bg-slate-100" },
+    { label: "Menunggu Review", value: count("Menunggu Review"), icon: Clock3, color: "text-amber-600", bg: "bg-amber-50" },
+    { label: "Revisi / Ditolak", value: count("Revisi") + count("Ditolak"), icon: RotateCcw, color: "text-orange-600", bg: "bg-orange-50" },
+    { label: "Disetujui", value: count("Disetujui"), icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50" },
+  ];
+
+  const tabCount = (t: Tab) => (t === "Semua" ? rows.length : count(t));
 
   return (
-    <div className="space-y-6 pt-20">
+    <div className="space-y-6">
       {/* PAGE HEADER */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Notulen Rapat
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Dokumentasi hasil pembahasan dan keputusan rapat organisasi.
-          </p>
-        </div>
-
-        <Button className="gap-2 bg-blue-600 hover:bg-blue-700">
-          <Plus className="size-4" />
-          Buat Notulen
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Notulen Rapat</h1>
+        <p className="text-sm text-muted-foreground">
+          Dokumentasi hasil pembahasan dan keputusan rapat. Notulen dibuat dari halaman rapat.
+        </p>
       </div>
 
       {/* SUMMARY CARDS */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: "Total Notulen",
-            value: minutesData.length,
-            icon: FileText,
-            color: "text-blue-600",
-            bg: "bg-blue-50",
-          },
-          {
-            label: "Draft",
-            value: draftCount,
-            icon: FileClock,
-            color: "text-slate-600",
-            bg: "bg-slate-100",
-          },
-          {
-            label: "Menunggu Approval",
-            value: approvalCount,
-            icon: Clock3,
-            color: "text-amber-600",
-            bg: "bg-amber-50",
-          },
-          {
-            label: "Disetujui",
-            value: approvedCount,
-            icon: CheckCircle2,
-            color: "text-emerald-600",
-            bg: "bg-emerald-50",
-          },
-        ].map((item) => (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {summary.map((item) => (
           <Card
             key={item.label}
             className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md"
           >
             <CardContent className="flex items-center justify-between p-5">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  {item.label}
-                </p>
-                <p className="mt-2 text-2xl font-bold">
-                  {item.value}
-                </p>
+                <p className="text-sm text-muted-foreground">{item.label}</p>
+                <p className="mt-2 text-2xl font-bold">{item.value}</p>
               </div>
-
               <div className={`rounded-xl p-3 ${item.bg}`}>
                 <item.icon className={`size-5 ${item.color}`} />
               </div>
@@ -177,148 +140,133 @@ export default function NotulenPage() {
         ))}
       </div>
 
-      {/* MINUTES TABLE */}
-      <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
-        <div className="flex flex-col gap-4 border-b bg-[#F8FAFC] p-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="font-semibold">Daftar Dokumen Notulen</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Kelola dan pantau dokumentasi hasil rapat.
-            </p>
-          </div>
+      {/* RAPAT BELUM BERNOTULEN */}
+      {missing.length > 0 && (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">
+            {missing.length} rapat selesai belum memiliki notulen:
+          </p>
+          <ul className="mt-1 space-y-1">
+            {missing.map((meeting) => (
+              <li key={meeting.id}>
+                <Link href={`/minutes/${meeting.id}`} className="underline hover:text-amber-900">
+                  {meeting.title}
+                </Link>{" "}
+                <span className="text-xs">({formatDate(meeting.date)})</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+      {/* TABLE */}
+      <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
+        <div className="space-y-4 border-b bg-[#F8FAFC] p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div role="tablist" aria-label="Filter status notulen" className="flex flex-wrap gap-1.5">
+              {TABS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t}
+                  onClick={() => setTab(t)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                    tab === t
+                      ? "bg-blue-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-blue-50"
+                  }`}
+                >
+                  {t} ({tabCount(t)})
+                </button>
+              ))}
+            </div>
+
             <div className="relative">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Cari notulen..."
+                aria-label="Cari notulen"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full border-slate-200 pl-9 sm:w-64"
+                className="w-full border-slate-200 pl-9 lg:w-72"
               />
             </div>
-
-            <Select
-              value={statusFilter}
-              onValueChange={setStatusFilter}
-            >
-              <SelectTrigger className="w-full border-slate-200 sm:w-48">
-                <SelectValue placeholder="Filter status" />
-              </SelectTrigger>
-
-              <SelectContent>
-                <SelectItem value="Semua">Semua Status</SelectItem>
-                <SelectItem value="Draft">Draft</SelectItem>
-                <SelectItem value="Menunggu Approval">
-                  Menunggu Approval
-                </SelectItem>
-                <SelectItem value="Disetujui">Disetujui</SelectItem>
-                <SelectItem value="Ditolak">Ditolak</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </div>
 
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
-                  <th className="px-5 py-4 text-left font-semibold">
-                    Informasi Notulen
-                  </th>
-                  <th className="px-5 py-4 text-left font-semibold">
-                    Rapat
-                  </th>
-                  <th className="px-5 py-4 text-left font-semibold">
-                    Tanggal
-                  </th>
-                  <th className="px-5 py-4 text-left font-semibold">
-                    Penyusun
-                  </th>
-                  <th className="px-5 py-4 text-left font-semibold">
-                    Status
-                  </th>
-                  <th className="px-5 py-4 text-center font-semibold">
-                    Aksi
-                  </th>
+                  <th className="px-5 py-4 text-left font-semibold">Notulen</th>
+                  <th className="px-5 py-4 text-left font-semibold">Tanggal Rapat</th>
+                  <th className="px-5 py-4 text-left font-semibold">Unit</th>
+                  <th className="px-5 py-4 text-left font-semibold">Notulis / Pimpinan</th>
+                  <th className="px-5 py-4 text-left font-semibold">Versi</th>
+                  <th className="px-5 py-4 text-left font-semibold">Status</th>
                 </tr>
               </thead>
 
               <tbody>
-                {filteredMinutes.map((item) => (
+                {filtered.map(({ meeting, status, version }) => (
                   <tr
-                    key={item.id}
-                    className="border-t border-slate-100 transition hover:bg-blue-50/40"
+                    key={meeting.id}
+                    className="border-t border-slate-100 align-top transition hover:bg-blue-50/40"
                   >
                     <td className="px-5 py-4">
                       <div className="flex items-start gap-3">
                         <div className="rounded-lg bg-blue-50 p-2">
                           <FileText className="size-4 text-blue-600" />
                         </div>
-
                         <div>
-                          <p className="font-semibold text-slate-800">
-                            {item.title}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {item.id}
-                          </p>
+                          <Link
+                            href={`/minutes/${meeting.id}`}
+                            className="font-semibold text-slate-800 hover:text-blue-700 hover:underline"
+                          >
+                            Notulen {meeting.title}
+                          </Link>
+                          <p className="mt-1 text-xs text-muted-foreground">{meeting.number}</p>
                         </div>
                       </div>
                     </td>
 
-                    <td className="px-5 py-4">
-                      <p className="font-medium text-slate-700">
-                        {item.meeting}
-                      </p>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2 text-slate-600">
+                    <td className="px-5 py-4 text-slate-600">
+                      <div className="flex items-center gap-2">
                         <CalendarDays className="size-3.5 text-blue-500" />
-                        {new Date(item.date).toLocaleDateString("id-ID", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })}
+                        {formatDate(meeting.date)}
                       </div>
                     </td>
 
                     <td className="px-5 py-4">
-                      <div className="flex items-center gap-2 text-slate-600">
-                        <UserRound className="size-3.5 text-slate-400" />
-                        {item.author}
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <Badge
-                        variant="outline"
-                        className={statusStyles[item.status]}
-                      >
-                        {item.status}
+                      <p className="font-medium text-slate-700">{getUnit(meeting.unitId)?.name}</p>
+                      <Badge variant="outline" className={`mt-1 ${classificationStyles[meeting.classification]}`}>
+                        {meeting.classification === "Rahasia" && <Lock className="mr-1 size-3" />}
+                        {meeting.classification}
                       </Badge>
                     </td>
 
-                    <td className="px-5 py-4 text-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-slate-500 hover:bg-blue-100 hover:text-blue-700"
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </Button>
+                    <td className="px-5 py-4 text-slate-600">
+                      <p>{meeting.notetaker || "—"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{meeting.leader}</p>
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-600">
+                      {version > 0 ? `v${version}` : "—"}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <Badge variant="outline" className={minuteStatusStyles[status]}>
+                        {status}
+                      </Badge>
                     </td>
                   </tr>
                 ))}
 
-                {filteredMinutes.length === 0 && (
+                {filtered.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={6}
-                      className="py-12 text-center text-muted-foreground"
-                    >
+                    <td colSpan={6} className="py-12 text-center text-muted-foreground">
                       Tidak ada notulen yang sesuai dengan pencarian.
                     </td>
                   </tr>
@@ -327,9 +275,9 @@ export default function NotulenPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between border-t bg-slate-50/70 px-5 py-3">
+          <div className="border-t bg-slate-50/70 px-5 py-3">
             <p className="text-xs text-muted-foreground">
-              Menampilkan {filteredMinutes.length} dari {minutesData.length} notulen
+              Menampilkan {filtered.length} dari {rows.length} notulen
             </p>
           </div>
         </CardContent>

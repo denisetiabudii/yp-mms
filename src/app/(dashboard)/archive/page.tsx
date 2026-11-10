@@ -141,7 +141,7 @@ export default function ArchivePage() {
   );
 
   return (
-    <div className="min-w-0 space-y-6 pt-20">
+    <div className="min-w-0 space-y-6">
       {/* PAGE HEADER */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>

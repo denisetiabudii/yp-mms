@@ -180,7 +180,7 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="min-w-0 space-y-6 pt-20">
+    <div className="min-w-0 space-y-6">
       {/* PAGE HEADER */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

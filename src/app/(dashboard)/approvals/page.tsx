@@ -133,7 +133,7 @@ export default function PersetujuanPage() {
   ).length;
 
   return (
-    <div className="space-y-6 pt-20">
+    <div className="space-y-6">
       {/* PAGE HEADER */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>

@@ -191,10 +191,6 @@
   }
 }
 
-/* Hide native browser password reveal button */
-input[type="password"]::reveal {
-  display: none;
-}
 
 /* Hide native Microsoft Edge password reveal button */
 input[type="password"]::-ms-reveal,

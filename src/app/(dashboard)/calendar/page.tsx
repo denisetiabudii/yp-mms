@@ -70,7 +70,7 @@ export default function KalenderRapatPage() {
   );
 
   return (
-    <div className="space-y-6 pt-20">
+    <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">

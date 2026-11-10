@@ -1,13 +1,13 @@
-
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 import {
   LayoutDashboard,
   CalendarDays,
+  CalendarCheck,
   Users,
   FileText,
   Vote,
@@ -17,7 +17,10 @@ import {
   BarChart3,
   Building2,
   ShieldCheck,
+  Briefcase,
+  Settings,
   ChevronDown,
+  type LucideIcon,
 } from "lucide-react";
 
 import {
@@ -29,10 +32,18 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
+type NavItem = {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  iconColor: string;
+};
+
 // MENU RUANG KERJA
-const workspaceItems = [
+const workspaceItems: NavItem[] = [
   {
     title: "Dasbor",
     url: "/dashboard",
@@ -45,6 +56,7 @@ const workspaceItems = [
     icon: CalendarDays,
     iconColor: "text-amber-600",
   },
+  { title: "Rapat", url: "/meetings", icon: CalendarCheck, iconColor: "text-blue-600" },
   {
     title: "Manajemen Peserta Rapat",
     url: "/participants",
@@ -78,7 +90,7 @@ const workspaceItems = [
 ];
 
 // MENU ADMINISTRASI
-const managementItems = [
+const managementItems: NavItem[] = [
   {
     title: "Arsip Rapat",
     url: "/archive",
@@ -105,157 +117,162 @@ const managementItems = [
   },
 ];
 
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
+/** Aktif untuk halaman itu sendiri dan turunannya, mis. /minutes/12 */
+function isPathActive(pathname: string, url: string) {
+  return pathname === url || pathname.startsWith(`${url}/`);
+}
 
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 767px)");
+function MenuItems({
+  items,
+  pathname,
+}: {
+  items: NavItem[];
+  pathname: string;
+}) {
+  return items.map((item) => {
+    const isActive = isPathActive(pathname, item.url);
 
-    const updateMobile = () => {
-      setIsMobile(mediaQuery.matches);
-    };
+    return (
+      <SidebarMenuItem key={item.url}>
+        <SidebarMenuButton
+          render={<Link href={item.url} />}
+          isActive={isActive}
+          tooltip={item.title}
+          aria-current={isActive ? "page" : undefined}
+          className="
+            text-slate-700
+            transition-colors
+            hover:bg-[#EFF6FF]
+            hover:text-[#0865ed]
+            data-[active=true]:bg-[#E3EEFF]
+            data-[active=true]:font-semibold
+            data-[active=true]:text-[#0865ed]
+          "
+        >
+          <item.icon
+            className={`${item.iconColor} size-4 shrink-0 transition-colors`}
+          />
+          <span>{item.title}</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  });
+}
 
-    updateMobile();
-    mediaQuery.addEventListener("change", updateMobile);
+/**
+ * Satu grup menu. Di desktop tampil sebagai label + daftar menu,
+ * di mobile tampil sebagai accordion.
+ */
+function NavGroup({
+  label,
+  icon: Icon,
+  items,
+  pathname,
+  isMobile,
+  open,
+  onToggle,
+}: {
+  label: string;
+  icon: LucideIcon;
+  items: NavItem[];
+  pathname: string;
+  isMobile: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <SidebarGroup>
+      {isMobile ? (
+        <>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={onToggle}
+                aria-expanded={open}
+                className="font-semibold text-[#101b3a]"
+              >
+                <Icon />
+                <span>{label}</span>
+                <ChevronDown
+                  className={`ml-auto transition-transform ${
+                    open ? "rotate-180" : ""
+                  }`}
+                />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
 
-    return () => {
-      mediaQuery.removeEventListener("change", updateMobile);
-    };
-  }, []);
+          {open && (
+            <SidebarMenu className="mt-1 pl-3">
+              <MenuItems items={items} pathname={pathname} />
+            </SidebarMenu>
+          )}
+        </>
+      ) : (
+        <>
+          <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wider text-slate-400 group-data-[collapsible=icon]:hidden">
+            {label}
+          </SidebarGroupLabel>
 
-  return isMobile;
+          <SidebarMenu>
+            <MenuItems items={items} pathname={pathname} />
+          </SidebarMenu>
+        </>
+      )}
+    </SidebarGroup>
+  );
 }
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const isMobile = useIsMobile();
+  const { isMobile } = useSidebar();
 
-  // State accordion untuk navigasi mobile
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [managementOpen, setManagementOpen] = useState(false);
+  // Accordion mobile: null = ikuti halaman aktif (grup yang berisi halaman
+  // yang sedang dibuka otomatis terbuka), true/false = pilihan pengguna.
+  const [workspaceToggle, setWorkspaceToggle] = useState<boolean | null>(null);
+  const [managementToggle, setManagementToggle] = useState<boolean | null>(
+    null,
+  );
 
-  // Render item navigasi
-  const renderMenuItems = (items: typeof workspaceItems) =>
-    items.map((item) => {
-      const isActive = pathname === item.url;
+  const workspaceOpen =
+    workspaceToggle ??
+    workspaceItems.some((item) => isPathActive(pathname, item.url));
 
-      return (
-        <SidebarMenuItem key={item.url}>
-          <SidebarMenuButton
-            render={<Link href={item.url} />}
-            isActive={isActive}
-            tooltip={item.title}
-            className="
-              text-slate-700
-              transition-colors
-              hover:bg-blue-50
-              hover:text-blue-700
-              data-[active=true]:bg-blue-100
-              data-[active=true]:text-blue-700
-              data-[active=true]:font-semibold
-            "
-          >
-            <item.icon
-              className={`${item.iconColor} size-4 shrink-0 transition-colors`}
-            />
-            <span>{item.title}</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      );
-    });
+  const managementOpen =
+    managementToggle ??
+    managementItems.some((item) => isPathActive(pathname, item.url));
 
   return (
     <Sidebar collapsible="icon" className="bg-[#F8FAFC] text-slate-700">
       <SidebarContent>
-        {/* RUANG KERJA */}
-        <SidebarGroup>
-          {isMobile ? (
-            <>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() =>
-                      setWorkspaceOpen((previous) => !previous)
-                    }
-                    className="font-semibold"
-                  >
-                    <LayoutDashboard />
-                    <span>Ruang Kerja</span>
-                    <ChevronDown
-                      className={`ml-auto transition-transform ${
-                        workspaceOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
+        <NavGroup
+          label="Ruang Kerja"
+          icon={Briefcase}
+          items={workspaceItems}
+          pathname={pathname}
+          isMobile={isMobile}
+          open={workspaceOpen}
+          onToggle={() => setWorkspaceToggle(!workspaceOpen)}
+        />
 
-              {workspaceOpen && (
-                <SidebarMenu className="mt-1 pl-3">
-                  {renderMenuItems(workspaceItems)}
-                </SidebarMenu>
-              )}
-            </>
-          ) : (
-            <>
-              <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wider text-slate-400 group-data-[collapsible=icon]:hidden">
-                Ruang Kerja
-              </SidebarGroupLabel>
-
-              <SidebarMenu>
-                {renderMenuItems(workspaceItems)}
-              </SidebarMenu>
-            </>
-          )}
-        </SidebarGroup>
-
-        {/* ADMINISTRASI */}
-        <SidebarGroup>
-          {isMobile ? (
-            <>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() =>
-                      setManagementOpen((previous) => !previous)
-                    }
-                    className="font-semibold"
-                  >
-                    <Building2 />
-                    <span>Administrasi</span>
-                    <ChevronDown
-                      className={`ml-auto transition-transform ${
-                        managementOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-
-              {managementOpen && (
-                <SidebarMenu className="mt-1 pl-3">
-                  {renderMenuItems(managementItems)}
-                </SidebarMenu>
-              )}
-            </>
-          ) : (
-            <>
-              <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
-                Administrasi
-              </SidebarGroupLabel>
-
-              <SidebarMenu>
-                {renderMenuItems(managementItems)}
-              </SidebarMenu>
-            </>
-          )}
-        </SidebarGroup>
+        <NavGroup
+          label="Administrasi"
+          icon={Settings}
+          items={managementItems}
+          pathname={pathname}
+          isMobile={isMobile}
+          open={managementOpen}
+          onToggle={() => setManagementToggle(!managementOpen)}
+        />
       </SidebarContent>
 
       {/* SIDEBAR FOOTER */}
       <SidebarFooter className="border-t p-3 group-data-[collapsible=icon]:hidden">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs font-medium text-slate-500">
           YP-MMS · Yuk Peduli Grup
+        </p>
+        <p className="text-[11px] text-slate-400">
+          Connect · Discuss · Decide · Execute
         </p>
       </SidebarFooter>
     </Sidebar>
