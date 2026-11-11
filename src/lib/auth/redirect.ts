@@ -8,7 +8,7 @@ export function safeNextPath(value: unknown, fallback = "/dashboard") {
   if (/[\u0000-\u001f\u007f]/.test(value)) return fallback;
 
   const path = value.split(/[?#]/)[0];
-  const blocked = ["/", "/login", "/register", "/forgot-password", "/reset-password"];
+  const blocked = ["/", "/login", "/forgot-password", "/reset-password"];
 
   return blocked.includes(path) || path.startsWith("/auth/") ? fallback : value;
 }

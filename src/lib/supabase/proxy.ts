@@ -7,7 +7,7 @@ import { getSupabaseEnv } from "./env";
  * Halaman yang boleh dibuka tanpa login. Selain ini WAJIB login
  * (default deny, PRD 5.1).
  */
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/register", "/auth/confirm"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/auth/confirm"];
 
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));

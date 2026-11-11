@@ -8,10 +8,6 @@ const NOTICES: Record<string, LoginNotice> = {
     tone: "success",
     text: "Kata sandi berhasil diubah. Silakan masuk dengan kata sandi baru.",
   },
-  "invite-only": {
-    tone: "info",
-    text: "Pendaftaran mandiri tidak tersedia. Akun dibuat oleh administrator melalui undangan email.",
-  },
   "link-invalid": {
     tone: "error",
     text: "Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru melalui Lupa Password atau hubungi administrator.",
