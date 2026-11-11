@@ -8,6 +8,7 @@ import { ChevronDown, Search, UserRound, LogOut } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { signOutAction } from "@/lib/auth/actions"
 
 /**
  * Halaman tujuan pencarian: daftar Notulen Rapat (sama dengan menu sidebar).
@@ -117,14 +118,6 @@ export function AppHeader({
     router.push(`${SEARCH_ROUTE}?q=${encodeURIComponent(trimmed)}`);
     searchRef.current?.blur();
   }
-
-  function handleLogout() {
-    closeProfile();
-
-    // TODO: Hapus sesi/token login di backend sebelum redirect.
-    router.replace("/login?reason=logout");
-  }
-
   return (
     <>
       {/* HEADER UTAMA */}
@@ -343,15 +336,16 @@ export function AppHeader({
                 <Separator className="my-1 bg-[#E2E8F0]" />
 
                 {/* LOGOUT */}
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={handleLogout}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50 focus:outline-none focus-visible:bg-red-50"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Keluar
-                </button>
+                <form action={signOutAction}>
+  <button
+    type="submit"
+    role="menuitem"
+    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50 focus:outline-none focus-visible:bg-red-50"
+  >
+    <LogOut className="h-4 w-4" />
+    Keluar
+  </button>
+</form>
               </div>
             )}
           </div>

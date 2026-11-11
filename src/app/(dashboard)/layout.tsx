@@ -1,17 +1,31 @@
+import { redirect } from "next/navigation";
+
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 
+import { AccountBlocked } from "@/components/auth/account-blocked";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
+import { getSessionState } from "@/lib/auth/session";
 
-// TODO: ganti dengan data sesi/notifikasi dari Supabase saat backend siap.
-const currentUser = { name: "Administrator", role: "Super Admin" };
+// TODO: ganti dengan jumlah notifikasi belum dibaca dari database.
 const unreadNotifications = 3;
 
-export default function DashboardLayout({ children }: LayoutProps<"/">) {
+export default async function DashboardLayout({ children }: LayoutProps<"/">) {
+  // Lapisan kedua setelah proxy.ts: verifikasi sesi + status akun di server.
+  const session = await getSessionState();
+
+  if (session.status === "anonymous") redirect("/login");
+  if (session.status === "blocked") return <AccountBlocked reason={session.reason} />;
+
+  const { user } = session;
+
   return (
     <SidebarProvider className="flex min-h-svh flex-col">
       {/* NAVBAR: berada di bagian paling atas */}
-      <AppHeader user={currentUser} unreadCount={unreadNotifications} />
+      <AppHeader
+        user={{ name: user.fullName, role: user.roleLabel }}
+        unreadCount={unreadNotifications}
+      />
 
       {/* DASHBOARD BODY: sidebar dan konten */}
       <div className="flex min-h-0 flex-1">
