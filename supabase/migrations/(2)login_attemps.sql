@@ -23,7 +23,7 @@ create or replace function public.login_attempt_status(p_key text)
 returns integer
 language sql
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select coalesce(
     (
@@ -48,7 +48,7 @@ create or replace function public.login_attempt_fail(
 returns integer
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   r public.login_attempts%rowtype;
@@ -96,7 +96,7 @@ create or replace function public.login_attempt_reset(p_key text)
 returns void
 language sql
 security definer
-set search_path = public
+set search_path = ''
 as $$
   delete from public.login_attempts where key = p_key;
 $$;

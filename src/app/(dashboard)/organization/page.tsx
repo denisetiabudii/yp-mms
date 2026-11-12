@@ -1,381 +1,575 @@
-
 "use client";
 
 import * as React from "react";
 import {
+  Briefcase,
   Building2,
-  Users,
-  Network,
-  UserRound,
-  Search,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  Pencil,
   Plus,
-  MoreHorizontal,
-  BriefcaseBusiness,
-  ShieldCheck,
-  Mail,
+  Power,
+  Trash2,
+  Users,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  CHILD_KIND,
+  INITIAL_ORG,
+  INITIAL_POSITIONS,
+  countDescendants,
+  findNode,
+  mapNode,
+  setActiveCascade,
+  type OrgKind,
+  type OrgNode,
+} from "@/lib/organization";
+import { USERS } from "@/lib/users";
 
-const organizationData = [
-  {
-    id: "ORG-001",
-    name: "Pengurus Yayasan",
-    leader: "Ahmad Fauzi",
-    email: "ahmad.fauzi@ypmms.org",
-    members: 8,
-    type: "Pusat",
-    status: "Aktif",
-    color: "bg-blue-100 text-blue-600",
-  },
-  {
-    id: "ORG-002",
-    name: "Divisi Pendidikan",
-    leader: "Siti Rahmawati",
-    email: "siti.rahmawati@ypmms.org",
-    members: 12,
-    type: "Divisi",
-    status: "Aktif",
-    color: "bg-violet-100 text-violet-600",
-  },
-  {
-    id: "ORG-003",
-    name: "Divisi Keuangan",
-    leader: "Budi Santoso",
-    email: "budi.santoso@ypmms.org",
-    members: 6,
-    type: "Divisi",
-    status: "Aktif",
-    color: "bg-emerald-100 text-emerald-600",
-  },
-  {
-    id: "ORG-004",
-    name: "Divisi Operasional",
-    leader: "Dewi Anggraini",
-    email: "dewi.anggraini@ypmms.org",
-    members: 10,
-    type: "Divisi",
-    status: "Aktif",
-    color: "bg-amber-100 text-amber-600",
-  },
-  {
-    id: "ORG-005",
-    name: "Divisi SDM",
-    leader: "Rizky Pratama",
-    email: "rizky.pratama@ypmms.org",
-    members: 7,
-    type: "Divisi",
-    status: "Aktif",
-    color: "bg-rose-100 text-rose-600",
-  },
-];
+const kindStyles: Record<OrgKind, string> = {
+  Grup: "border-purple-200 bg-purple-50 text-purple-700",
+  Unit: "border-blue-200 bg-blue-50 text-blue-700",
+  Departemen: "border-sky-200 bg-sky-50 text-sky-700",
+  Divisi: "border-slate-200 bg-slate-100 text-slate-600",
+};
 
-const stats = [
-  {
-    title: "Total Organisasi",
-    value: "5",
-    description: "Struktur organisasi terdaftar",
-    icon: Building2,
-    color: "bg-blue-100 text-blue-600",
-    border: "border-t-blue-500",
-  },
-  {
-    title: "Total Anggota",
-    value: "43",
-    description: "Anggota dalam organisasi",
-    icon: Users,
-    color: "bg-emerald-100 text-emerald-600",
-    border: "border-t-emerald-500",
-  },
-  {
-    title: "Divisi",
-    value: "4",
-    description: "Unit kerja aktif",
-    icon: Network,
-    color: "bg-violet-100 text-violet-600",
-    border: "border-t-violet-500",
-  },
-  {
-    title: "Pimpinan",
-    value: "5",
-    description: "Penanggung jawab organisasi",
-    icon: ShieldCheck,
-    color: "bg-amber-100 text-amber-600",
-    border: "border-t-amber-500",
-  },
-];
+const iconButton =
+  "inline-flex size-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-blue-100 hover:text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500";
+const primaryButton =
+  "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-medium text-white transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40";
+const secondaryButton =
+  "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40";
 
-export default function OrganizationPage() {
-  const [search, setSearch] = React.useState("");
+type Editing = { id: string; mode: "add" | "rename" } | null;
+type Notice = { tone: "success" | "error"; text: string };
 
-  const filteredOrganizations = organizationData.filter((organization) => {
-    const keyword = search.toLowerCase();
+/** Kode dipakai pada nomor rapat (mis. YP/LAZ/PRG/...), jadi dibatasi formatnya. */
+const CODE_PATTERN = /^[A-Z0-9]{2,6}$/;
 
-    return (
-      organization.name.toLowerCase().includes(keyword) ||
-      organization.leader.toLowerCase().includes(keyword) ||
-      organization.id.toLowerCase().includes(keyword)
-    );
-  });
+function validateNode(
+  siblings: OrgNode[],
+  selfId: string | null,
+  kind: OrgKind,
+  name: string,
+  code: string,
+) {
+  const cleanName = name.trim();
+  const cleanCode = code.trim();
+  const others = siblings.filter((s) => s.id !== selfId);
+
+  if (cleanName.length < 2 || cleanName.length > 80) return "Nama harus 2–80 karakter.";
+  if (others.some((s) => s.name.toLowerCase() === cleanName.toLowerCase())) {
+    return `Sudah ada ${kind.toLowerCase()} dengan nama tersebut pada tingkat ini.`;
+  }
+
+  if (kind === "Unit" || kind === "Departemen") {
+    if (cleanCode && !CODE_PATTERN.test(cleanCode)) return "Kode terdiri dari 2–6 huruf kapital atau angka.";
+    if (cleanCode && others.some((s) => s.code === cleanCode)) return "Kode sudah dipakai pada tingkat ini.";
+  }
+
+  return "";
+}
+
+function countByKind(node: OrgNode, kind: OrgKind): number {
+  return (
+    (node.kind === kind && node.active ? 1 : 0) +
+    node.children.reduce((sum, child) => sum + countByKind(child, kind), 0)
+  );
+}
+
+/** Jumlah pengguna aktif pada unit/departemen (penugasan banyak dihitung sekali). */
+function memberCount(node: OrgNode): number | null {
+  const active = USERS.filter((u) => u.status === "Aktif");
+
+  if (node.kind === "Grup") return active.length;
+  if (node.kind === "Unit") return active.filter((u) => u.assignments.some((a) => a.unitId === node.id)).length;
+  if (node.kind === "Departemen") {
+    return active.filter((u) => u.assignments.some((a) => a.departmentId === node.id)).length;
+  }
+
+  return null;
+}
+
+type Ctx = {
+  collapsed: string[];
+  editing: Editing;
+  name: string;
+  code: string;
+  error: string;
+  confirmId: string | null;
+  toggleCollapse: (id: string) => void;
+  startEdit: (node: OrgNode, mode: "add" | "rename") => void;
+  cancelEdit: () => void;
+  setName: (value: string) => void;
+  setCode: (value: string) => void;
+  submit: () => void;
+  askDeactivate: (node: OrgNode) => void;
+  cancelConfirm: () => void;
+  setActive: (node: OrgNode, active: boolean) => void;
+};
+
+function TreeNode({
+  node,
+  parentActive,
+  ctx,
+}: {
+  node: OrgNode;
+  parentActive: boolean;
+  ctx: Ctx;
+}) {
+  const isRoot = node.kind === "Grup";
+  const open = !ctx.collapsed.includes(node.id);
+  const hasChildren = node.children.length > 0;
+  const members = memberCount(node);
+  const childKind = CHILD_KIND[node.kind];
+  const isEditingHere = ctx.editing?.id === node.id;
+  const showCode = node.kind === "Unit" || node.kind === "Departemen";
+  const formKind = ctx.editing?.mode === "add" ? childKind : node.kind;
+  const needsCode = formKind === "Unit" || formKind === "Departemen";
+  const affected = countDescendants(node);
 
   return (
-    <div className="min-w-0 space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">
-            Organisasi
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Kelola struktur organisasi, divisi, dan penanggung jawab.
+    <li>
+      <div
+        className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${
+          node.active ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50"
+        }`}
+      >
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={() => ctx.toggleCollapse(node.id)}
+            aria-expanded={open}
+            aria-label={`${open ? "Ciutkan" : "Buka"} ${node.name}`}
+            className={iconButton}
+          >
+            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          </button>
+        ) : (
+          <span className="inline-block size-8" aria-hidden="true" />
+        )}
+
+        <Badge variant="outline" className={kindStyles[node.kind]}>{node.kind}</Badge>
+
+        <span className={`font-medium ${node.active ? "text-slate-800" : "text-slate-400 line-through"}`}>
+          {node.name}
+        </span>
+
+        {showCode && node.code && (
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">{node.code}</span>
+        )}
+
+        {!node.active && (
+          <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-500">Nonaktif</Badge>
+        )}
+
+        {members !== null && (
+          <span className="flex items-center gap-1 text-xs text-slate-500">
+            <Users className="size-3.5" />
+            {members}
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => ctx.startEdit(node, "add")}
+            disabled={!node.active}
+            aria-label={`Tambah ${childKind.toLowerCase()} di bawah ${node.name}`}
+            title={node.active ? `Tambah ${childKind.toLowerCase()}` : "Aktifkan dulu untuk menambah"}
+            className={iconButton}
+          >
+            <Plus className="size-4" />
+          </button>
+
+          {!isRoot && (
+            <>
+              <button
+                type="button"
+                onClick={() => ctx.startEdit(node, "rename")}
+                aria-label={`Ubah ${node.name}`}
+                title="Ubah nama"
+                className={iconButton}
+              >
+                <Pencil className="size-4" />
+              </button>
+
+              {ctx.confirmId === node.id ? (
+                <span className="flex items-center gap-1.5 pl-1">
+                  <span className="text-xs text-slate-600">
+                    Nonaktifkan{affected > 0 ? ` beserta ${affected} turunan` : ""}?
+                  </span>
+                  <button type="button" onClick={() => ctx.setActive(node, false)} className="h-7 rounded-md bg-red-600 px-2.5 text-xs font-medium text-white hover:bg-red-700">
+                    Ya
+                  </button>
+                  <button type="button" onClick={ctx.cancelConfirm} className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                    Batal
+                  </button>
+                </span>
+              ) : node.active ? (
+                <button
+                  type="button"
+                  onClick={() => ctx.askDeactivate(node)}
+                  aria-label={`Nonaktifkan ${node.name}`}
+                  title="Nonaktifkan"
+                  className={`${iconButton} hover:bg-red-50 hover:text-red-600`}
+                >
+                  <Power className="size-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => ctx.setActive(node, true)}
+                  disabled={!parentActive}
+                  aria-label={`Aktifkan ${node.name}`}
+                  title={parentActive ? "Aktifkan" : "Aktifkan induknya terlebih dahulu"}
+                  className={`${iconButton} hover:bg-emerald-50 hover:text-emerald-700`}
+                >
+                  <Power className="size-4" />
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {isEditingHere && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            ctx.submit();
+          }}
+          noValidate
+          className="ml-10 mt-2 space-y-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3"
+        >
+          <p className="text-xs font-semibold text-blue-800">
+            {ctx.editing?.mode === "add" ? `Tambah ${childKind.toLowerCase()} baru` : `Ubah ${node.kind.toLowerCase()}`}
           </p>
-        </div>
 
-        <Button className="w-full gap-2 bg-blue-600 hover:bg-blue-700 sm:w-auto">
-          <Plus className="h-4 w-4" />
-          Tambah Organisasi
-        </Button>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <Card
-              key={item.title}
-              className={`border-[#DBEAFE] border-t-2 ${item.border} shadow-sm transition hover:shadow-md`}
-            >
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500">
-                      {item.title}
-                    </p>
-                    <h3 className="mt-2 text-2xl font-bold text-slate-800">
-                      {item.value}
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {item.description}
-                    </p>
-                  </div>
-
-                  <div className={`rounded-xl p-3 ${item.color}`}>
-                    <Icon className="h-5 w-5" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Organization Hierarchy */}
-      <Card className="border-[#DBEAFE] shadow-sm">
-        <div className="flex items-center gap-3 border-b border-slate-100 p-5">
-          <div className="rounded-xl bg-blue-100 p-2.5 text-blue-600">
-            <Network className="h-5 w-5" />
-          </div>
-
-          <div>
-            <h2 className="font-semibold text-slate-800">
-              Struktur Organisasi
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Hierarki unit kerja Yayasan.
-            </p>
-          </div>
-        </div>
-
-        <CardContent className="overflow-x-auto p-6">
-          <div className="mx-auto flex min-w-[600px] flex-col items-center">
-            {/* Root Organization */}
-            <div className="w-64 rounded-xl border border-blue-200 bg-blue-50 p-4 text-center shadow-sm">
-              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white">
-                <Building2 className="h-5 w-5" />
-              </div>
-
-              <p className="font-semibold text-slate-800">
-                Pengurus Yayasan
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Ahmad Fauzi · 8 Anggota
-              </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex-1">
+              <label htmlFor="org-name" className="sr-only">Nama</label>
+              <Input
+                id="org-name"
+                autoFocus
+                value={ctx.name}
+                onChange={(e) => ctx.setName(e.target.value)}
+                placeholder="Nama"
+                maxLength={80}
+                aria-invalid={!!ctx.error}
+                aria-describedby={ctx.error ? "org-error" : undefined}
+              />
             </div>
 
-            {/* Connector */}
-            <div className="h-8 w-px bg-blue-200" />
-            <div className="h-px w-[80%] bg-blue-200" />
-
-            {/* Divisions */}
-            <div className="grid w-full grid-cols-4 gap-4">
-              {organizationData.slice(1).map((organization) => {
-                const Icon =
-                  organization.id === "ORG-002"
-                    ? BriefcaseBusiness
-                    : organization.id === "ORG-003"
-                      ? ShieldCheck
-                      : organization.id === "ORG-004"
-                        ? Building2
-                        : Users;
-
-                return (
-                  <div
-                    key={organization.id}
-                    className="flex flex-col items-center"
-                  >
-                    <div className="h-8 w-px bg-blue-200" />
-
-                    <div className="w-full rounded-xl border border-slate-200 bg-white p-4 text-center shadow-sm transition hover:border-blue-300 hover:shadow-md">
-                      <div
-                        className={`mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${organization.color}`}
-                      >
-                        <Icon className="h-5 w-5" />
-                      </div>
-
-                      <p className="text-sm font-semibold text-slate-800">
-                        {organization.name}
-                      </p>
-
-                      <p className="mt-2 text-xs text-slate-500">
-                        {organization.leader}
-                      </p>
-
-                      <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
-                        <Users className="h-3 w-3" />
-                        {organization.members} Anggota
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Organization List */}
-      <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-100 bg-[#F8FAFC] p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-800">
-              Daftar Organisasi & Divisi
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Informasi unit kerja dan penanggung jawab organisasi.
-            </p>
-          </div>
-
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              placeholder="Cari organisasi..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="border-slate-200 bg-white pl-9"
-            />
-          </div>
-        </div>
-
-        <CardContent className="p-0">
-          <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[750px] text-sm">
-              <thead className="bg-white text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-5 py-4">Organisasi / Divisi</th>
-                  <th className="px-5 py-4">Penanggung Jawab</th>
-                  <th className="px-5 py-4">Email</th>
-                  <th className="px-5 py-4 text-center">Anggota</th>
-                  <th className="px-5 py-4">Jenis</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4 text-right">Aksi</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filteredOrganizations.map((organization) => (
-                  <tr
-                    key={organization.id}
-                    className="border-t border-slate-100 transition hover:bg-blue-50/40"
-                  >
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`rounded-lg p-2 ${organization.color}`}
-                        >
-                          <Building2 className="h-4 w-4" />
-                        </div>
-
-                        <div>
-                          <p className="font-medium text-slate-800">
-                            {organization.name}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            {organization.id}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                          <UserRound className="h-4 w-4" />
-                        </div>
-                        <span className="font-medium text-slate-700">
-                          {organization.leader}
-                        </span>
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <span className="flex items-center gap-2 text-slate-500">
-                        <Mail className="h-4 w-4" />
-                        {organization.email}
-                      </span>
-                    </td>
-
-                    <td className="px-5 py-4 text-center font-medium text-slate-700">
-                      {organization.members}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <span className="rounded-lg bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
-                        {organization.type}
-                      </span>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                        {organization.status}
-                      </span>
-                    </td>
-
-                    <td className="px-5 py-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-slate-500 hover:bg-blue-50 hover:text-blue-600"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {filteredOrganizations.length === 0 && (
-              <div className="p-10 text-center text-sm text-slate-500">
-                Organisasi tidak ditemukan.
+            {needsCode && (
+              <div className="sm:w-36">
+                <label htmlFor="org-code" className="sr-only">Kode</label>
+                <Input
+                  id="org-code"
+                  value={ctx.code}
+                  onChange={(e) => ctx.setCode(e.target.value.toUpperCase())}
+                  placeholder="Kode (opsional)"
+                  maxLength={6}
+                  className="font-mono"
+                />
               </div>
             )}
+
+            <div className="flex gap-2">
+              <button type="submit" className={primaryButton}>Simpan</button>
+              <button type="button" onClick={ctx.cancelEdit} className={secondaryButton}>Batal</button>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+
+          {needsCode && (
+            <p className="text-xs text-slate-500">
+              Kode dipakai pada nomor rapat. Mengubah kode hanya berlaku untuk rapat yang dibuat setelahnya.
+            </p>
+          )}
+          {ctx.error && <p id="org-error" role="alert" className="text-xs text-red-600">{ctx.error}</p>}
+        </form>
+      )}
+
+      {hasChildren && open && (
+        <ul className="ml-5 mt-2 space-y-2 border-l border-slate-200 pl-4">
+          {node.children.map((child) => (
+            <TreeNode key={child.id} node={child} parentActive={node.active} ctx={ctx} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+export default function OrganizationPage() {
+  const counter = React.useRef(1);
+
+  const [tree, setTree] = React.useState<OrgNode>(INITIAL_ORG);
+  const [positions, setPositions] = React.useState<string[]>([...INITIAL_POSITIONS]);
+  const [collapsed, setCollapsed] = React.useState<string[]>([]);
+  const [editing, setEditing] = React.useState<Editing>(null);
+  const [name, setName] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [confirmId, setConfirmId] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<Notice | null>(null);
+
+  const [positionName, setPositionName] = React.useState("");
+  const [positionError, setPositionError] = React.useState("");
+
+  const usedPositions = new Map<string, number>();
+  USERS.forEach((u) =>
+    u.assignments.forEach((a) => usedPositions.set(a.position, (usedPositions.get(a.position) ?? 0) + 1)),
+  );
+
+  function startEdit(node: OrgNode, mode: "add" | "rename") {
+    setEditing({ id: node.id, mode });
+    setName(mode === "rename" ? node.name : "");
+    setCode(mode === "rename" ? (node.code ?? "") : "");
+    setError("");
+    setConfirmId(null);
+    if (mode === "add") setCollapsed((current) => current.filter((id) => id !== node.id));
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setError("");
+  }
+
+  function submit() {
+    if (!editing) return;
+
+    const target = findNode(tree, editing.id);
+    if (!target) return;
+
+    if (editing.mode === "add") {
+      const kind = CHILD_KIND[target.kind];
+      const problem = validateNode(target.children, null, kind, name, code);
+
+      if (problem) return setError(problem);
+
+      const child: OrgNode = {
+        id: `new-${counter.current++}`,
+        name: name.trim(),
+        kind,
+        code: code.trim() || undefined,
+        active: true,
+        children: [],
+      };
+
+      // TODO: Server Action — simpan ke tabel master organisasi + audit_logs.
+      setTree((current) => mapNode(current, target.id, (n) => ({ ...n, children: [...n.children, child] })));
+      setNotice({ tone: "success", text: `${kind} “${child.name}” ditambahkan di bawah ${target.name}.` });
+    } else {
+      const parent = findParent(tree, target.id);
+      const problem = validateNode(parent?.children ?? [], target.id, target.kind, name, code);
+
+      if (problem) return setError(problem);
+
+      const withCode = target.kind === "Unit" || target.kind === "Departemen";
+
+      setTree((current) =>
+        mapNode(current, target.id, (n) => ({
+          ...n,
+          name: name.trim(),
+          code: withCode ? code.trim() || undefined : n.code,
+        })),
+      );
+      setNotice({ tone: "success", text: `${target.kind} diperbarui menjadi “${name.trim()}”.` });
+    }
+
+    cancelEdit();
+  }
+
+  function setActive(node: OrgNode, active: boolean) {
+    setTree((current) =>
+      mapNode(current, node.id, (n) => (active ? { ...n, active: true } : setActiveCascade(n, false))),
+    );
+    setConfirmId(null);
+    setNotice({
+      tone: "success",
+      text: active
+        ? `“${node.name}” diaktifkan kembali.`
+        : `“${node.name}” dinonaktifkan. Riwayat rapat dan notulennya tetap tersimpan.`,
+    });
+  }
+
+  function addPosition(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const value = positionName.trim();
+
+    if (value.length < 2 || value.length > 40) return setPositionError("Nama jabatan harus 2–40 karakter.");
+    if (positions.some((p) => p.toLowerCase() === value.toLowerCase())) {
+      return setPositionError("Jabatan tersebut sudah ada.");
+    }
+
+    setPositions((current) => [...current, value]);
+    setPositionName("");
+    setPositionError("");
+    setNotice({ tone: "success", text: `Jabatan “${value}” ditambahkan.` });
+  }
+
+  function removePosition(position: string) {
+    setPositions((current) => current.filter((p) => p !== position));
+    setNotice({ tone: "success", text: `Jabatan “${position}” dihapus dari daftar.` });
+  }
+
+  const ctx: Ctx = {
+    collapsed,
+    editing,
+    name,
+    code,
+    error,
+    confirmId,
+    toggleCollapse: (id) =>
+      setCollapsed((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id])),
+    startEdit,
+    cancelEdit,
+    setName: (value) => {
+      setName(value);
+      setError("");
+    },
+    setCode: (value) => {
+      setCode(value);
+      setError("");
+    },
+    submit,
+    askDeactivate: (node) => {
+      setEditing(null);
+      setConfirmId(node.id);
+    },
+    cancelConfirm: () => setConfirmId(null),
+    setActive,
+  };
+
+  const summary = [
+    { label: "Unit Aktif", value: countByKind(tree, "Unit"), icon: Building2, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Departemen Aktif", value: countByKind(tree, "Departemen"), icon: Layers, color: "text-sky-600", bg: "bg-sky-50" },
+    { label: "Divisi Aktif", value: countByKind(tree, "Divisi"), icon: Layers, color: "text-slate-600", bg: "bg-slate-100" },
+    { label: "Jabatan", value: positions.length, icon: Briefcase, color: "text-purple-600", bg: "bg-purple-50" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Struktur Organisasi</h1>
+        <p className="text-sm text-muted-foreground">
+          Kelola unit, departemen, divisi, dan jabatan. Struktur bersifat dinamis; data lama dinonaktifkan,
+          bukan dihapus, agar riwayat rapat tetap utuh.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {summary.map((item) => (
+          <Card key={item.label} className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md">
+            <CardContent className="flex items-center justify-between p-5">
+              <div>
+                <p className="text-sm text-muted-foreground">{item.label}</p>
+                <p className="mt-2 text-2xl font-bold">{item.value}</p>
+              </div>
+              <div className={`rounded-xl p-3 ${item.bg}`}>
+                <item.icon className={`size-5 ${item.color}`} />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {notice && (
+        <div
+          role={notice.tone === "error" ? "alert" : "status"}
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            notice.tone === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <Card className="border-[#DBEAFE] shadow-sm">
+          <CardHeader className="border-b bg-[#F8FAFC]">
+            <CardTitle className="text-base">Hierarki</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Angka di samping nama adalah jumlah pengguna aktif. Grup → Unit → Departemen → Divisi.
+            </p>
+          </CardHeader>
+          <CardContent className="p-5">
+            <ul className="space-y-2">
+              <TreeNode node={tree} parentActive ctx={ctx} />
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card className="h-fit border-[#DBEAFE] shadow-sm">
+          <CardHeader className="border-b bg-[#F8FAFC]">
+            <CardTitle className="text-base">Master Jabatan</CardTitle>
+            <p className="text-xs text-muted-foreground">Jabatan berbeda dari role aplikasi.</p>
+          </CardHeader>
+          <CardContent className="space-y-4 p-5">
+            <ul className="divide-y divide-slate-100">
+              {positions.map((position) => {
+                const used = usedPositions.get(position) ?? 0;
+
+                return (
+                  <li key={position} className="flex items-center justify-between gap-3 py-2">
+                    <span className="text-sm text-slate-800">{position}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">{used} penugasan</span>
+                      <button
+                        type="button"
+                        onClick={() => removePosition(position)}
+                        disabled={used > 0}
+                        aria-label={`Hapus jabatan ${position}`}
+                        title={used > 0 ? "Masih dipakai penugasan pengguna" : "Hapus"}
+                        className={`${iconButton} hover:bg-red-50 hover:text-red-600`}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <form onSubmit={addPosition} noValidate className="space-y-2">
+              <label htmlFor="position-name" className="text-sm font-medium text-slate-700">Tambah jabatan</label>
+              <div className="flex gap-2">
+                <Input
+                  id="position-name"
+                  value={positionName}
+                  onChange={(e) => {
+                    setPositionName(e.target.value);
+                    setPositionError("");
+                  }}
+                  aria-invalid={!!positionError}
+                  aria-describedby={positionError ? "position-error" : undefined}
+                  maxLength={40}
+                />
+                <button type="submit" className={primaryButton}>Tambah</button>
+              </div>
+              {positionError && <p id="position-error" role="alert" className="text-xs text-red-600">{positionError}</p>}
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
+}
+
+/** Cari induk dari sebuah node. */
+function findParent(root: OrgNode, childId: string): OrgNode | undefined {
+  for (const child of root.children) {
+    if (child.id === childId) return root;
+
+    const found = findParent(child, childId);
+    if (found) return found;
+  }
+
+  return undefined;
 }

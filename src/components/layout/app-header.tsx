@@ -3,12 +3,21 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Search, UserRound, LogOut } from "lucide-react";
+import {
+  ChevronDown,
+  FileText,
+  Loader2,
+  Search,
+  UserRound,
+  LogOut,
+  X,
+} from "lucide-react";
 
 import { BrandLogo } from "@/components/brand-logo";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { signOutAction } from "@/lib/auth/actions"
+import { signOutAction } from "@/lib/auth/actions";
+import { searchMinutesAction } from "@/lib/search/actions";
 
 /**
  * Halaman tujuan pencarian: daftar Notulen Rapat (sama dengan menu sidebar).
@@ -18,6 +27,20 @@ import { signOutAction } from "@/lib/auth/actions"
  * nilai ini.
  */
 const SEARCH_ROUTE = "/minutes";
+
+/** Satu hasil pencarian. `date` dan `status` sudah berupa teks siap tampil. */
+export type SearchResult = {
+  id: string;
+  title: string;
+  date: string;
+  status: string;
+  href: string;
+};
+
+type SearchStatus = "idle" | "loading" | "done" | "error";
+
+const MIN_QUERY_LENGTH = 2;
+const SEARCH_DEBOUNCE_MS = 300;
 
 type AppHeaderProps = {
   /** Pengguna yang sedang login. Ambil dari sesi saat backend siap. */
@@ -57,6 +80,29 @@ export function AppHeader({
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
 
+  // Pencarian di mobile dan tablet: kolom cari muncul sebagai bar di bawah
+  // header. Seperti dropdown profil, status terbukanya terikat ke pathname,
+  // jadi menutup sendiri saat pindah halaman tanpa setState di dalam effect.
+  const [searchOpenedAt, setSearchOpenedAt] = useState<string | null>(null);
+  const isSearchOpen = searchOpenedAt === pathname;
+
+  const toggleSearch = () =>
+    setSearchOpenedAt((current) => (current === pathname ? null : pathname));
+
+  // Hasil pencarian langsung. Semua setState dilakukan di event handler dan
+  // callback (bukan di effect), requestId mencegah hasil lama menimpa yang baru.
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searchStatus, setSearchStatus] = useState<SearchStatus>("idle");
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [panelAt, setPanelAt] = useState<string | null>(null);
+  const isPanelOpen = panelAt === pathname;
+
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
+
+  const trimmedQuery = query.trim();
+
   const initials = getInitials(user.name);
 
   const isNotificationsActive = pathname.startsWith("/notifications");
@@ -95,7 +141,7 @@ export function AppHeader({
           searchRef.current?.focus();
           searchRef.current?.select();
         } else {
-          router.push(SEARCH_ROUTE);
+          setSearchOpenedAt(pathname);
         }
       }
     }
@@ -103,21 +149,118 @@ export function AppHeader({
     document.addEventListener("keydown", handleShortcut);
 
     return () => document.removeEventListener("keydown", handleShortcut);
-  }, [router]);
+  }, [pathname]);
+
+  // Saat bar pencarian dibuka (mobile/tablet), langsung fokus ke kolom cari
+  useEffect(() => {
+    if (isSearchOpen) searchRef.current?.focus();
+  }, [isSearchOpen]);
+
+  // Tutup daftar hasil saat klik di luar area pencarian
+  useEffect(() => {
+    if (!isPanelOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!searchWrapRef.current?.contains(event.target as Node)) {
+        setPanelAt(null);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isPanelOpen]);
+
+  // Bersihkan timer debounce saat komponen dilepas
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  function closeSearch() {
+    setPanelAt(null);
+    setSearchOpenedAt(null);
+  }
+
+  function resetSearch() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    requestIdRef.current += 1;
+
+    setQuery("");
+    setResults([]);
+    setSearchStatus("idle");
+    setActiveIndex(-1);
+  }
+
+  function handleSelectResult() {
+    closeSearch();
+    resetSearch();
+  }
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    setActiveIndex(-1);
+
+    const trimmed = value.trim();
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    requestIdRef.current += 1;
+
+    if (!trimmed) {
+      setPanelAt(null);
+      setResults([]);
+      setSearchStatus("idle");
+      return;
+    }
+
+    setPanelAt(pathname);
+
+    if (trimmed.length < MIN_QUERY_LENGTH) {
+      setResults([]);
+      setSearchStatus("idle");
+      return;
+    }
+
+    const requestId = requestIdRef.current;
+    setSearchStatus("loading");
+
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const found = await searchMinutesAction(trimmed);
+
+        if (requestId !== requestIdRef.current) return;
+
+        setResults(found);
+        setSearchStatus("done");
+      } catch {
+        if (requestId !== requestIdRef.current) return;
+
+        setResults([]);
+        setSearchStatus("error");
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  }
 
   function handleSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmed = query.trim();
-
-    if (!trimmed) {
+    if (!trimmedQuery) {
       searchRef.current?.focus();
       return;
     }
 
-    router.push(`${SEARCH_ROUTE}?q=${encodeURIComponent(trimmed)}`);
+    // Berpindah halaman hanya jika ada hasil. Mengetik asal-asalan tidak
+    // membawa pengguna ke mana pun.
+    if (searchStatus !== "done" || results.length === 0) return;
+
+    const seeAllHref = `${SEARCH_ROUTE}?q=${encodeURIComponent(trimmedQuery)}`;
+
+    router.push(results[activeIndex]?.href ?? seeAllHref);
     searchRef.current?.blur();
+    handleSelectResult();
   }
+
   return (
     <>
       {/* HEADER UTAMA */}
@@ -162,43 +305,173 @@ export function AppHeader({
 
         {/* RIGHT SECTION */}
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-          {/* SEARCH - DESKTOP */}
-          <form
-            role="search"
-            onSubmit={handleSearch}
-            className="hidden h-9 w-72 items-center gap-2 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-[#64748B] transition-all hover:border-[#BFDBFE] focus-within:border-[#0865ed] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#0865ed]/20 lg:flex"
-          >
-            <Search className="h-4 w-4 shrink-0" />
-
-            <input
-              ref={searchRef}
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") event.currentTarget.blur();
-              }}
-              placeholder="Cari notulen rapat..."
-              aria-label="Cari notulen rapat"
-              enterKeyHint="search"
-              maxLength={100}
-              autoComplete="off"
-              className="min-w-0 flex-1 bg-transparent text-sm text-[#101b3a] outline-none placeholder:text-[#94A3B8]"
-            />
-
-            <kbd className="shrink-0 rounded border border-[#E2E8F0] bg-white px-1.5 py-0.5 text-[10px]">
-              Ctrl K
-            </kbd>
-          </form>
-
-          {/* SEARCH - MOBILE & TABLET */}
-          <Link
-            href={SEARCH_ROUTE}
-            aria-label="Cari notulen rapat"
+          {/* SEARCH: tombol buka/tutup (mobile & tablet) */}
+          <button
+            type="button"
+            onClick={toggleSearch}
+            aria-label={isSearchOpen ? "Tutup pencarian" : "Cari notulen rapat"}
+            aria-expanded={isSearchOpen}
+            aria-controls="header-search"
             className="flex h-9 w-9 items-center justify-center rounded-xl text-[#64748B] transition-colors hover:bg-[#EFF6FF] hover:text-[#0865ed] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0865ed]/40 sm:h-10 sm:w-10 lg:hidden"
           >
-            <Search className="h-5 w-5" />
-          </Link>
+            {isSearchOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Search className="h-5 w-5" />
+            )}
+          </button>
+
+          {/* SEARCH: bar di bawah header (mobile & tablet), kolom inline (desktop) */}
+          <div ref={searchWrapRef} className="contents lg:relative lg:block">
+            <form
+              id="header-search"
+              role="search"
+              onSubmit={handleSearch}
+              className={`items-center gap-2 text-[#64748B] ${
+                isSearchOpen
+                  ? `absolute inset-x-0 top-full flex h-14 border-b border-[#DBEAFE] bg-white shadow-md ${
+                      isMobile ? "pl-14 pr-3" : "px-4"
+                    }`
+                  : "hidden"
+              } lg:static lg:flex lg:h-9 lg:w-72 lg:rounded-lg lg:border lg:border-[#E2E8F0] lg:bg-[#F8FAFC] lg:px-3 lg:shadow-none lg:transition-all lg:hover:border-[#BFDBFE] lg:focus-within:border-[#0865ed] lg:focus-within:bg-white lg:focus-within:ring-2 lg:focus-within:ring-[#0865ed]/20`}
+            >
+              <Search className="hidden h-4 w-4 shrink-0 lg:block" />
+
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={(event) => handleQueryChange(event.target.value)}
+                onFocus={() => {
+                  if (trimmedQuery) setPanelAt(pathname);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.currentTarget.blur();
+                    closeSearch();
+                    return;
+                  }
+
+                  if (results.length === 0) return;
+
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setPanelAt(pathname);
+                    setActiveIndex((index) => (index + 1) % results.length);
+                  }
+
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveIndex((index) =>
+                      index <= 0 ? results.length - 1 : index - 1,
+                    );
+                  }
+                }}
+                placeholder="Cari notulen rapat..."
+                aria-label="Cari notulen rapat"
+                role="combobox"
+                aria-expanded={isPanelOpen}
+                aria-controls="header-search-list"
+                aria-autocomplete="list"
+                aria-activedescendant={
+                  activeIndex >= 0 ? `search-option-${activeIndex}` : undefined
+                }
+                enterKeyHint="search"
+                maxLength={100}
+                autoComplete="off"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-sm text-[#101b3a] outline-none placeholder:text-[#94A3B8] focus:border-[#0865ed] focus:bg-white focus:ring-2 focus:ring-[#0865ed]/20 lg:h-auto lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0 lg:focus:bg-transparent lg:focus:ring-0"
+              />
+
+              <kbd className="hidden shrink-0 rounded border border-[#E2E8F0] bg-white px-1.5 py-0.5 text-[10px] lg:inline-block">
+                Ctrl K
+              </kbd>
+
+              <button
+                type="submit"
+                aria-label="Cari"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0865ed] text-white transition-colors hover:bg-[#0649b8] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0865ed]/40 lg:hidden"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </form>
+
+            {/* DAFTAR HASIL PENCARIAN */}
+            {isPanelOpen && (
+              <div
+                className={`${
+                  isSearchOpen ? "block" : "hidden"
+                } absolute inset-x-0 top-[calc(100%+3.5rem)] z-[70] max-h-[60vh] overflow-y-auto border-b border-[#DBEAFE] bg-white p-1.5 shadow-lg lg:block lg:inset-x-auto lg:right-0 lg:top-full lg:mt-2 lg:w-[26rem] lg:rounded-2xl lg:border lg:shadow-[0_16px_40px_rgba(37,99,235,0.15)]`}
+              >
+                {trimmedQuery.length < MIN_QUERY_LENGTH ? (
+                  <p role="status" className="px-3 py-4 text-sm text-[#64748B]">
+                    Ketik minimal {MIN_QUERY_LENGTH} karakter.
+                  </p>
+                ) : searchStatus === "loading" ? (
+                  <p
+                    role="status"
+                    className="flex items-center gap-2 px-3 py-4 text-sm text-[#64748B]"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Mencari…
+                  </p>
+                ) : searchStatus === "error" ? (
+                  <p role="status" className="px-3 py-4 text-sm text-red-600">
+                    Pencarian gagal. Coba lagi.
+                  </p>
+                ) : results.length === 0 ? (
+                  <p role="status" className="px-3 py-4 text-sm text-[#64748B]">
+                    Tidak ada notulen yang cocok dengan “{trimmedQuery}”.
+                  </p>
+                ) : (
+                  <>
+                    <ul
+                      id="header-search-list"
+                      role="listbox"
+                      aria-label="Hasil pencarian"
+                    >
+                      {results.map((item, index) => (
+                        <li
+                          key={item.id}
+                          id={`search-option-${index}`}
+                          role="option"
+                          aria-selected={index === activeIndex}
+                        >
+                          <Link
+                            href={item.href}
+                            onClick={handleSelectResult}
+                            className={`flex items-start gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#EFF6FF] focus:outline-none focus-visible:bg-[#EFF6FF] ${
+                              index === activeIndex ? "bg-[#EFF6FF]" : ""
+                            }`}
+                          >
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF3FF] text-[#0865ed]">
+                              <FileText className="h-4 w-4" />
+                            </span>
+
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold text-[#101b3a]">
+                                {item.title}
+                              </span>
+                              <span className="block truncate text-xs text-[#64748B]">
+                                {item.date} · {item.status}
+                              </span>
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Link
+                      href={`${SEARCH_ROUTE}?q=${encodeURIComponent(trimmedQuery)}`}
+                      onClick={handleSelectResult}
+                      className="mt-1 flex items-center justify-center rounded-xl border-t border-[#EEF2F7] px-3 py-2.5 text-xs font-semibold text-[#0865ed] transition-colors hover:bg-[#EFF6FF] focus:outline-none focus-visible:bg-[#EFF6FF]"
+                    >
+                      Lihat semua hasil
+                    </Link>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* NOTIFICATION */}
           <Link
@@ -337,15 +610,15 @@ export function AppHeader({
 
                 {/* LOGOUT */}
                 <form action={signOutAction}>
-  <button
-    type="submit"
-    role="menuitem"
-    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50 focus:outline-none focus-visible:bg-red-50"
-  >
-    <LogOut className="h-4 w-4" />
-    Keluar
-  </button>
-</form>
+                  <button
+                    type="submit"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50 focus:outline-none focus-visible:bg-red-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Keluar
+                  </button>
+                </form>
               </div>
             )}
           </div>

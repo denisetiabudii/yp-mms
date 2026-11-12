@@ -29,7 +29,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
 
       {/* DASHBOARD BODY: sidebar dan konten */}
       <div className="flex min-h-0 flex-1">
-        <AppSidebar />
+        <AppSidebar role={user.role} />
 
         <SidebarInset className="min-h-0 min-w-0">
           {/*

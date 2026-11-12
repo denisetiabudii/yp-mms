@@ -10,7 +10,20 @@ const NOTICES: Record<string, LoginNotice> = {
   },
   "link-invalid": {
     tone: "error",
-    text: "Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru melalui Lupa Password atau hubungi administrator.",
+    text: "Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru melalui Lupa kata sandi atau hubungi administrator.",
+  },
+  // Dikirim oleh lib/supabase/proxy.ts saat sesi diakhiri.
+  inactive: {
+    tone: "error",
+    text: "Akun Anda tidak aktif. Hubungi administrator.",
+  },
+  "session-revoked": {
+    tone: "info",
+    text: "Sesi Anda diakhiri karena ada perubahan pada akun Anda. Silakan masuk kembali.",
+  },
+  "service-error": {
+    tone: "error",
+    text: "Layanan sedang terganggu, sesi Anda diakhiri demi keamanan. Coba masuk lagi beberapa saat lagi.",
   },
 };
 
@@ -23,5 +36,11 @@ export default async function LoginPage({ searchParams }: Props) {
   const params = await searchParams;
   const reason = typeof params.reason === "string" ? params.reason : "";
 
-  return <LoginForm next={safeNextPath(params.next)} notice={NOTICES[reason]} />;
+  // hasOwnProperty: tanpa ini ?reason=constructor atau ?reason=toString
+  // mengembalikan fungsi bawaan objek, bukan notice, dan merusak tampilan.
+  const notice = Object.prototype.hasOwnProperty.call(NOTICES, reason)
+    ? NOTICES[reason]
+    : undefined;
+
+  return <LoginForm next={safeNextPath(params.next)} notice={notice} />;
 }

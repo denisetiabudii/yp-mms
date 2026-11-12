@@ -48,10 +48,11 @@ function throttleKey(email: string) {
 
 function createThrottleClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Nama variabel mengikuti .env proyek (SUPABASE_SECRET_KEY); nama lama tetap diterima.
+  const serviceKey = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !serviceKey) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL atau SUPABASE_SERVICE_ROLE_KEY belum diisi.");
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL atau SUPABASE_SECRET_KEY belum diisi.");
   }
 
   return createServiceClient(url, serviceKey, {

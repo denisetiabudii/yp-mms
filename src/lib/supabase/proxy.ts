@@ -40,11 +40,13 @@ export async function updateSession(request: NextRequest) {
   // Jangan menyisipkan kode lain antara createServerClient dan getClaims().
   const { data } = await supabase.auth.getClaims();
   const isAuthenticated = !!data?.claims;
+  const userId = data?.claims?.sub;
+  const issuedAt = data?.claims?.iat;
   const { pathname, search } = request.nextUrl;
 
   /** Redirect yang tetap membawa cookie sesi terbaru dan header cache. */
-  function redirectTo(target: URL) {
-    const response = NextResponse.redirect(target);
+  function redirectTo(target: URL, status?: number) {
+    const response = NextResponse.redirect(target, status);
     supabaseResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
 
     for (const header of ["cache-control", "expires", "pragma"]) {
@@ -63,6 +65,72 @@ export async function updateSession(request: NextRequest) {
     if (pathname !== "/") loginUrl.searchParams.set("next", `${pathname}${search}`);
 
     return redirectTo(loginUrl);
+  }
+
+  // Sesi diakhiri pada request berikutnya (bukan hanya saat login, FR-001) jika:
+  //  - akun dinonaktifkan atau profilnya tidak ada          -> "inactive"
+  //  - admin mengubah profil pengguna setelah sesi terbit   -> "session-revoked"
+  //  - status akun tidak bisa diperiksa (layanan terganggu) -> "service-error"
+  // Token yang sudah terbit tetap valid sampai kedaluwarsa, jadi pemeriksaan ke
+  // database di sini yang sebenarnya menutup aksesnya. Aturan akun sama dengan
+  // signInAction: tanpa profil atau is_active=false ditolak.
+  if (isAuthenticated && userId && !isPublic(pathname)) {
+    const loadProfile = () =>
+      supabase
+        .from("profiles")
+        .select("is_active, session_revoked_at")
+        .eq("id", userId)
+        .maybeSingle();
+
+    // Satu kali ulang agar galat sesaat (mis. timeout) tidak langsung mengeluarkan pengguna.
+    let result = await loadProfile();
+    if (result.error) result = await loadProfile();
+
+    const { data: profile, error } = result;
+
+    let reason: "inactive" | "session-revoked" | "service-error" | null = null;
+    // "global" mencabut sesi di semua perangkat; hanya untuk akun nonaktif.
+    let scope: "global" | "local" = "local";
+
+    if (error) {
+      console.error("[proxy] Gagal memeriksa status akun:", error.message);
+      reason = "service-error";
+    } else if (!profile || !profile.is_active) {
+      reason = "inactive";
+      scope = "global";
+    } else if (
+      profile.session_revoked_at &&
+      (issuedAt === undefined ||
+        issuedAt < Math.floor(Date.parse(profile.session_revoked_at) / 1000))
+    ) {
+      // Token ini terbit sebelum admin mengubah profil. Masuk lagi menerbitkan
+      // token baru yang lolos pemeriksaan ini.
+      reason = "session-revoked";
+    }
+
+    if (reason) {
+      const { error: signOutError } = await supabase.auth.signOut({ scope });
+
+      if (signOutError) {
+        // Supabase tidak menghapus cookie jika pemanggilan ke server gagal. Hapus
+        // manual, kalau tidak halaman login akan melempar balik ke dashboard
+        // dan terjadi putaran redirect.
+        request.cookies
+          .getAll()
+          .filter((cookie) => cookie.name.startsWith("sb-"))
+          .forEach((cookie) =>
+            supabaseResponse.cookies.set(cookie.name, "", { path: "/", maxAge: 0 }),
+          );
+      }
+
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.search = "";
+      loginUrl.searchParams.set("reason", reason);
+
+      // 303 agar request POST (server action) dialihkan sebagai GET.
+      return redirectTo(loginUrl, 303);
+    }
   }
 
   // Pengguna yang sudah login tidak perlu melihat halaman login lagi.

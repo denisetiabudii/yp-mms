@@ -1,343 +1,538 @@
-
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
-  Users,
-  UserCheck,
-  UserX,
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
   Clock3,
-  Search,
+  Lock,
+  MapPin,
   Plus,
-  MoreHorizontal,
-  Mail,
-  Building2,
+  Trash2,
+  UserCheck,
+  UserMinus,
+  Users,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  ATTENDANCE_STATUSES,
+  MEETINGS,
+  PEOPLE,
+  UNITS,
+  attendanceStyles,
+  formatDate,
+  formatTimeRange,
+  getUnit,
+  meetingStatusStyles,
+  type AttendanceStatus,
+  type Meeting,
+  type MeetingParticipant,
+} from "@/lib/meetings";
 
-type ParticipantStatus = "Hadir" | "Belum Konfirmasi" | "Tidak Hadir";
+const controlClass =
+  "h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+const primaryButton =
+  "inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50";
+const secondaryButton =
+  "inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50";
 
-type Participant = {
-  id: string;
-  name: string;
-  email: string;
-  position: string;
-  division: string;
-  status: ParticipantStatus;
-};
+/** Yang dihitung hadir: hadir fisik, daring, atau terlambat. */
+const PRESENT: AttendanceStatus[] = ["Hadir", "Online", "Terlambat"];
+/** Status yang wajib disertai alasan. */
+const NEEDS_REASON: AttendanceStatus[] = ["Izin", "Sakit"];
+/** Status yang masih menunjukkan alasan opsional. */
+const SHOWS_NOTE: AttendanceStatus[] = ["Izin", "Sakit", "Tidak hadir"];
 
-const participants: Participant[] = [
-  {
-    id: "PST-001",
-    name: "Ahmad Fauzi",
-    email: "ahmad.fauzi@yp-mms.id",
-    position: "Ketua Yayasan",
-    division: "Pimpinan",
-    status: "Hadir",
-  },
-  {
-    id: "PST-002",
-    name: "Siti Rahmawati",
-    email: "siti.rahmawati@yp-mms.id",
-    position: "Sekretaris",
-    division: "Administrasi",
-    status: "Hadir",
-  },
-  {
-    id: "PST-003",
-    name: "Rizky Pratama",
-    email: "rizky.pratama@yp-mms.id",
-    position: "Kepala Divisi",
-    division: "Operasional",
-    status: "Belum Konfirmasi",
-  },
-  {
-    id: "PST-004",
-    name: "Dewi Anggraini",
-    email: "dewi.anggraini@yp-mms.id",
-    position: "Staff Administrasi",
-    division: "Administrasi",
-    status: "Tidak Hadir",
-  },
-  {
-    id: "PST-005",
-    name: "Budi Santoso",
-    email: "budi.santoso@yp-mms.id",
-    position: "Koordinator",
-    division: "Keuangan",
-    status: "Hadir",
-  },
-];
+type Roster = Record<string, MeetingParticipant[]>;
+type Tab = "rapat" | "rekap";
 
-const statusStyles: Record<ParticipantStatus, string> = {
-  Hadir: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  "Belum Konfirmasi": "bg-amber-50 text-amber-700 border-amber-200",
-  "Tidak Hadir": "bg-rose-50 text-rose-700 border-rose-200",
-};
+function buildRoster(): Roster {
+  return Object.fromEntries(
+    MEETINGS.map((meeting) => [meeting.id, meeting.participants.map((p) => ({ ...p }))]),
+  );
+}
 
-export default function PesertaPage() {
-  const [search, setSearch] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState("Semua Status");
+/** Rapat yang belum berlangsung belum bisa berstatus Terlambat. */
+function allowedStatuses(meeting: Meeting): AttendanceStatus[] {
+  return meeting.status === "Dijadwalkan"
+    ? ATTENDANCE_STATUSES.filter((s) => s !== "Terlambat")
+    : [...ATTENDANCE_STATUSES];
+}
 
-  const filteredParticipants = participants.filter((participant) => {
-    const keyword = search.toLowerCase();
+/** Alasan data terkunci, atau null bila boleh diubah. */
+function lockReason(meeting: Meeting) {
+  if (meeting.status === "Dibatalkan") return "Rapat dibatalkan; kehadiran tidak dapat diubah.";
+  if (meeting.minuteStatus === "Disetujui") {
+    return "Notulen sudah disetujui sehingga daftar hadir terkunci. Perubahan dilakukan lewat amandemen notulen.";
+  }
 
-    const matchesSearch =
-      participant.name.toLowerCase().includes(keyword) ||
-      participant.email.toLowerCase().includes(keyword) ||
-      participant.division.toLowerCase().includes(keyword) ||
-      participant.id.toLowerCase().includes(keyword);
+  return null;
+}
 
-    const matchesStatus =
-      statusFilter === "Semua Status" ||
-      participant.status === statusFilter;
+/** Rapat terdekat yang akan datang; bila tidak ada, yang terbaru. */
+function defaultMeetingId() {
+  const sorted = [...MEETINGS].sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
+  const upcoming = sorted.find((m) => m.status === "Dijadwalkan" || m.status === "Berlangsung");
 
-    return matchesSearch && matchesStatus;
-  });
+  return (upcoming ?? sorted[sorted.length - 1]).id;
+}
 
-  const totalParticipants = participants.length;
-  const presentCount = participants.filter(
-    (participant) => participant.status === "Hadir"
-  ).length;
-  const pendingCount = participants.filter(
-    (participant) => participant.status === "Belum Konfirmasi"
-  ).length;
-  const absentCount = participants.filter(
-    (participant) => participant.status === "Tidak Hadir"
-  ).length;
+export default function ParticipantsPage() {
+  const [saved, setSaved] = React.useState<Roster>(buildRoster);
+  const [draft, setDraft] = React.useState<Roster>(buildRoster);
+  const [meetingId, setMeetingId] = React.useState(defaultMeetingId);
+  const [tab, setTab] = React.useState<Tab>("rapat");
+  const [addName, setAddName] = React.useState("");
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
+  const [notice, setNotice] = React.useState("");
+  const [unitFilter, setUnitFilter] = React.useState("all");
+
+  const meeting = MEETINGS.find((m) => m.id === meetingId) as Meeting;
+  const rows = draft[meetingId] ?? [];
+  const locked = lockReason(meeting);
+  const statuses = allowedStatuses(meeting);
+
+  const isDirty = (id: string) => JSON.stringify(draft[id]) !== JSON.stringify(saved[id]);
+  const dirty = isDirty(meetingId);
+
+  const count = (...list: AttendanceStatus[]) => rows.filter((r) => list.includes(r.attendance)).length;
+
+  const candidates = PEOPLE.filter((p) => !rows.some((r) => r.name === p.name));
+
+  function selectMeeting(id: string) {
+    setMeetingId(id);
+    setErrors({});
+    setNotice("");
+  }
+
+  function updateRow(name: string, patch: Partial<MeetingParticipant>) {
+    setDraft((current) => ({
+      ...current,
+      [meetingId]: current[meetingId].map((r) => (r.name === name ? { ...r, ...patch } : r)),
+    }));
+    setErrors((current) => ({ ...current, [name]: "" }));
+    setNotice("");
+  }
+
+  function changeStatus(name: string, attendance: AttendanceStatus) {
+    // Alasan hanya relevan untuk izin/sakit/tidak hadir; hapus bila tidak lagi relevan.
+    updateRow(name, { attendance, ...(SHOWS_NOTE.includes(attendance) ? {} : { note: undefined }) });
+  }
+
+  function addParticipant() {
+    const person = PEOPLE.find((p) => p.name === addName);
+
+    if (!person) return;
+
+    setDraft((current) => ({
+      ...current,
+      [meetingId]: [
+        ...current[meetingId],
+        { name: person.name, position: person.position, attendance: "Belum konfirmasi" },
+      ],
+    }));
+    setAddName("");
+    setNotice("");
+  }
+
+  function removeParticipant(name: string) {
+    setDraft((current) => ({
+      ...current,
+      [meetingId]: current[meetingId].filter((r) => r.name !== name),
+    }));
+    setNotice("");
+  }
+
+  function save() {
+    const found: Record<string, string> = {};
+
+    rows.forEach((row) => {
+      if (NEEDS_REASON.includes(row.attendance) && !row.note?.trim()) {
+        found[row.name] = `Alasan wajib diisi untuk status ${row.attendance}.`;
+      }
+    });
+
+    setErrors(found);
+
+    if (Object.keys(found).length > 0) {
+      setNotice("");
+      return;
+    }
+
+    // TODO: Server Action — simpan ke tabel meeting_participants + audit_logs,
+    // dan tolak bila notulen sudah Disetujui (aturan dijaga di server juga).
+    setSaved((current) => ({ ...current, [meetingId]: rows.map((r) => ({ ...r })) }));
+    setNotice("Daftar peserta dan kehadiran tersimpan.");
+  }
+
+  function discard() {
+    setDraft((current) => ({ ...current, [meetingId]: saved[meetingId].map((r) => ({ ...r })) }));
+    setErrors({});
+    setNotice("Perubahan dibatalkan.");
+  }
+
+  /* ----------------------- Rekap kehadiran per orang ----------------------- */
+
+  const recap = React.useMemo(() => {
+    const finished = MEETINGS.filter(
+      (m) => m.status === "Selesai" && (unitFilter === "all" || m.unitId === unitFilter),
+    );
+    const people = new Map<
+      string,
+      { name: string; position: string; invited: number; present: number; excused: number; absent: number; pending: number }
+    >();
+
+    finished.forEach((m) => {
+      (saved[m.id] ?? []).forEach((p) => {
+        const entry =
+          people.get(p.name) ??
+          { name: p.name, position: p.position, invited: 0, present: 0, excused: 0, absent: 0, pending: 0 };
+
+        entry.invited += 1;
+        if (PRESENT.includes(p.attendance)) entry.present += 1;
+        else if (p.attendance === "Izin" || p.attendance === "Sakit") entry.excused += 1;
+        else if (p.attendance === "Tidak hadir") entry.absent += 1;
+        else entry.pending += 1;
+
+        people.set(p.name, entry);
+      });
+    });
+
+    return {
+      meetings: finished.length,
+      list: [...people.values()].sort((a, b) => b.present / b.invited - a.present / a.invited || a.name.localeCompare(b.name)),
+    };
+  }, [saved, unitFilter]);
+
+  const summary = [
+    { label: "Diundang", value: rows.length, icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Hadir", value: count(...PRESENT), icon: UserCheck, color: "text-emerald-600", bg: "bg-emerald-50" },
+    { label: "Izin / Sakit", value: count("Izin", "Sakit"), icon: Clock3, color: "text-amber-600", bg: "bg-amber-50" },
+    { label: "Tidak Hadir", value: count("Tidak hadir"), icon: UserMinus, color: "text-red-600", bg: "bg-red-50" },
+    { label: "Belum Konfirmasi", value: count("Belum konfirmasi"), icon: AlertTriangle, color: "text-slate-600", bg: "bg-slate-100" },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Page Heading */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">
-            Manajemen Peserta
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Kelola data peserta dan status kehadiran rapat.
-          </p>
-        </div>
-
-        <Button className="bg-blue-600 text-white hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" />
-          Tambah Peserta
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Manajemen Peserta Rapat</h1>
+        <p className="text-sm text-muted-foreground">
+          Kelola undangan peserta dan catat kehadiran per rapat, serta lihat rekap kehadiran per orang.
+        </p>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Total Peserta
-              </p>
-              <p className="mt-2 text-2xl font-bold text-slate-800">
-                {totalParticipants}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                Seluruh peserta terdaftar
-              </p>
-            </div>
-            <div className="rounded-xl bg-blue-100 p-3 text-blue-600">
-              <Users className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#DBEAFE] border-t-2 border-t-emerald-500 shadow-sm transition hover:shadow-md">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Hadir
-              </p>
-              <p className="mt-2 text-2xl font-bold text-slate-800">
-                {presentCount}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                Peserta terkonfirmasi hadir
-              </p>
-            </div>
-            <div className="rounded-xl bg-emerald-100 p-3 text-emerald-600">
-              <UserCheck className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#DBEAFE] border-t-2 border-t-amber-500 shadow-sm transition hover:shadow-md">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Belum Konfirmasi
-              </p>
-              <p className="mt-2 text-2xl font-bold text-slate-800">
-                {pendingCount}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                Menunggu konfirmasi kehadiran
-              </p>
-            </div>
-            <div className="rounded-xl bg-amber-100 p-3 text-amber-600">
-              <Clock3 className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-[#DBEAFE] border-t-2 border-t-rose-500 shadow-sm transition hover:shadow-md">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-sm font-medium text-slate-500">
-                Tidak Hadir
-              </p>
-              <p className="mt-2 text-2xl font-bold text-slate-800">
-                {absentCount}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                Peserta tidak menghadiri rapat
-              </p>
-            </div>
-            <div className="rounded-xl bg-rose-100 p-3 text-rose-600">
-              <UserX className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
+      <div role="tablist" aria-label="Tampilan peserta" className="flex gap-1.5">
+        {(
+          [
+            ["rapat", "Per Rapat"],
+            ["rekap", "Rekap Kehadiran"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              tab === value ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-blue-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Participant Table */}
-      <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
-        <div className="flex flex-col gap-4 border-b bg-[#F8FAFC] p-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-800">
-              Daftar Peserta
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Informasi peserta yang terdaftar dalam sistem.
-            </p>
+      {tab === "rapat" && (
+        <>
+          {/* PILIH RAPAT */}
+          <Card className="border-[#DBEAFE] shadow-sm">
+            <CardContent className="space-y-3 p-5">
+              <label htmlFor="meeting-select" className="text-sm font-medium text-slate-700">Rapat</label>
+              <select
+                id="meeting-select"
+                value={meetingId}
+                onChange={(e) => selectMeeting(e.target.value)}
+                className={`${controlClass} w-full`}
+              >
+                {[...MEETINGS]
+                  .sort((a, b) => `${b.date}${b.startTime}`.localeCompare(`${a.date}${a.startTime}`))
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {isDirty(m.id) ? "● " : ""}
+                      {m.title} — {formatDate(m.date)} ({m.status})
+                    </option>
+                  ))}
+              </select>
+
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-500">
+                <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5" />{formatDate(meeting.date)}, {formatTimeRange(meeting.startTime, meeting.endTime)}</span>
+                <span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{meeting.location} ({meeting.mode})</span>
+                <span>{getUnit(meeting.unitId)?.name}</span>
+                <Badge variant="outline" className={meetingStatusStyles[meeting.status]}>{meeting.status}</Badge>
+                <Link href={`/meetings/${meeting.id}`} className="font-medium text-blue-600 hover:underline">Detail rapat</Link>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {summary.map((item) => (
+              <Card key={item.label} className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md">
+                <CardContent className="flex items-center justify-between p-5">
+                  <div>
+                    <p className="text-sm text-muted-foreground">{item.label}</p>
+                    <p className="mt-2 text-2xl font-bold">{item.value}</p>
+                  </div>
+                  <div className={`rounded-xl p-3 ${item.bg}`}>
+                    <item.icon className={`size-5 ${item.color}`} />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                placeholder="Cari peserta..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="w-full border-slate-200 bg-white pl-9 sm:w-[240px]"
-              />
+          {locked && (
+            <div role="status" className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <Lock className="mt-0.5 size-4 shrink-0" />
+              <span>{locked}</span>
             </div>
+          )}
 
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none focus:border-blue-400"
-            >
-              <option>Semua Status</option>
-              <option>Hadir</option>
-              <option>Belum Konfirmasi</option>
-              <option>Tidak Hadir</option>
-            </select>
-          </div>
-        </div>
+          {notice && (
+            <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {notice}
+            </div>
+          )}
 
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
-              <thead className="bg-white text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-5 py-4">Peserta</th>
-                  <th className="px-5 py-4">Jabatan</th>
-                  <th className="px-5 py-4">Unit Kerja</th>
-                  <th className="px-5 py-4">Status Kehadiran</th>
-                  <th className="px-5 py-4">ID Peserta</th>
-                  <th className="px-5 py-4 text-right">Aksi</th>
-                </tr>
-              </thead>
+          {Object.values(errors).some(Boolean) && (
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              Lengkapi alasan untuk peserta yang izin atau sakit sebelum menyimpan.
+            </div>
+          )}
 
-              <tbody>
-                {filteredParticipants.map((participant) => (
-                  <tr
-                    key={participant.id}
-                    className="border-t border-slate-100 transition hover:bg-blue-50/40"
+          {/* DAFTAR PESERTA */}
+          <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
+            <CardHeader className="border-b bg-[#F8FAFC]">
+              <CardTitle className="text-base">Daftar Peserta ({rows.length})</CardTitle>
+              {dirty && <p className="text-xs font-medium text-amber-700">Ada perubahan yang belum disimpan.</p>}
+            </CardHeader>
+
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead className="bg-slate-50 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-5 py-4 text-left font-semibold">Peserta</th>
+                      <th className="px-5 py-4 text-left font-semibold">Kehadiran</th>
+                      <th className="px-5 py-4 text-left font-semibold">Alasan / catatan</th>
+                      <th className="px-5 py-4 text-center font-semibold">Aksi</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {rows.map((row) => {
+                      const isLeader = row.name === meeting.leader;
+                      const isNotetaker = row.name === meeting.notetaker;
+                      const protectedRow = isLeader || isNotetaker;
+                      const noteId = `note-${row.name.replace(/\s+/g, "-")}`;
+
+                      return (
+                        <tr key={row.name} className="border-t border-slate-100 align-top transition hover:bg-blue-50/40">
+                          <td className="px-5 py-4">
+                            <p className="font-semibold text-slate-800">{row.name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{row.position}</p>
+                            <div className="mt-1 flex gap-1.5">
+                              {isLeader && <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700">Pimpinan</Badge>}
+                              {isNotetaker && <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">Notulis</Badge>}
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <select
+                              aria-label={`Kehadiran ${row.name}`}
+                              value={row.attendance}
+                              onChange={(e) => changeStatus(row.name, e.target.value as AttendanceStatus)}
+                              disabled={!!locked}
+                              className={`${controlClass} h-8 text-xs`}
+                            >
+                              {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
+                            </select>
+                            <div className="mt-1.5">
+                              <Badge variant="outline" className={attendanceStyles[row.attendance]}>{row.attendance}</Badge>
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-4">
+                            {SHOWS_NOTE.includes(row.attendance) ? (
+                              <>
+                                <label htmlFor={noteId} className="sr-only">Alasan {row.name}</label>
+                                <Input
+                                  id={noteId}
+                                  value={row.note ?? ""}
+                                  onChange={(e) => updateRow(row.name, { note: e.target.value })}
+                                  readOnly={!!locked}
+                                  placeholder={NEEDS_REASON.includes(row.attendance) ? "Alasan (wajib)" : "Alasan (opsional)"}
+                                  aria-invalid={!!errors[row.name]}
+                                  aria-describedby={errors[row.name] ? `${noteId}-error` : undefined}
+                                  maxLength={200}
+                                />
+                                {errors[row.name] && (
+                                  <p id={`${noteId}-error`} role="alert" className="mt-1 text-xs text-red-600">{errors[row.name]}</p>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => removeParticipant(row.name)}
+                              disabled={!!locked || protectedRow || meeting.status === "Selesai"}
+                              aria-label={`Hapus ${row.name} dari daftar peserta`}
+                              title={
+                                protectedRow
+                                  ? "Pimpinan dan notulis tidak dapat dihapus"
+                                  : meeting.status === "Selesai"
+                                    ? "Rapat sudah selesai; peserta tidak dihapus agar riwayat utuh"
+                                    : "Hapus dari daftar"
+                              }
+                              className="inline-flex size-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {rows.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-12 text-center text-muted-foreground">Belum ada peserta pada rapat ini.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t bg-slate-50/70 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="add-participant" className="sr-only">Tambah peserta</label>
+                  <select
+                    id="add-participant"
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    disabled={!!locked || candidates.length === 0}
+                    className={`${controlClass} w-64`}
                   >
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-700">
-                          {participant.name
-                            .split(" ")
-                            .map((word) => word[0])
-                            .slice(0, 2)
-                            .join("")}
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-800">
-                            {participant.name}
-                          </p>
-                          <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                            <Mail className="h-3 w-3" />
-                            {participant.email}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
+                    <option value="">{candidates.length === 0 ? "Semua pengguna sudah diundang" : "Tambah peserta…"}</option>
+                    {candidates.map((p) => (<option key={p.id} value={p.name}>{p.name} — {p.position}</option>))}
+                  </select>
+                  <button type="button" onClick={addParticipant} disabled={!addName || !!locked} className={secondaryButton}>
+                    <Plus className="size-4" />
+                    Tambah
+                  </button>
+                </div>
 
-                    <td className="px-5 py-4 text-slate-600">
-                      {participant.position}
-                    </td>
+                <div className="flex gap-2">
+                  <button type="button" onClick={discard} disabled={!dirty} className={secondaryButton}>Batalkan perubahan</button>
+                  <button type="button" onClick={save} disabled={!dirty || !!locked} className={primaryButton}>
+                    <CheckCircle2 className="size-4" />
+                    Simpan
+                  </button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
-                    <td className="px-5 py-4">
-                      <span className="flex items-center gap-2 text-slate-600">
-                        <Building2 className="h-4 w-4 text-slate-400" />
-                        {participant.division}
-                      </span>
-                    </td>
+      {tab === "rekap" && (
+        <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
+          <CardHeader className="border-b bg-[#F8FAFC]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-base">Rekap Kehadiran per Orang</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Dihitung dari {recap.meetings} rapat berstatus Selesai. Hadir = hadir, online, atau terlambat.
+                </p>
+              </div>
 
-                    <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${statusStyles[participant.status]}`}
-                      >
-                        {participant.status}
-                      </span>
-                    </td>
+              <select aria-label="Filter unit" value={unitFilter} onChange={(e) => setUnitFilter(e.target.value)} className={controlClass}>
+                <option value="all">Semua Unit</option>
+                {UNITS.map((u) => (<option key={u.id} value={u.id}>{u.name}</option>))}
+              </select>
+            </div>
+          </CardHeader>
 
-                    <td className="px-5 py-4 font-medium text-slate-500">
-                      {participant.id}
-                    </td>
-
-                    <td className="px-5 py-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-slate-500 hover:bg-blue-100 hover:text-blue-600"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-
-                {filteredParticipants.length === 0 && (
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="bg-slate-50 text-xs text-slate-500">
                   <tr>
-                    <td
-                      colSpan={6}
-                      className="px-5 py-12 text-center text-slate-500"
-                    >
-                      <Users className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                      <p className="font-medium">Peserta tidak ditemukan</p>
-                      <p className="mt-1 text-xs">
-                        Coba gunakan kata kunci atau filter lainnya.
-                      </p>
-                    </td>
+                    <th className="px-5 py-4 text-left font-semibold">Nama</th>
+                    <th className="px-5 py-4 text-center font-semibold">Diundang</th>
+                    <th className="px-5 py-4 text-center font-semibold">Hadir</th>
+                    <th className="px-5 py-4 text-center font-semibold">Izin / Sakit</th>
+                    <th className="px-5 py-4 text-center font-semibold">Tidak Hadir</th>
+                    <th className="px-5 py-4 text-left font-semibold">Tingkat Kehadiran</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+
+                <tbody>
+                  {recap.list.map((p) => {
+                    const rate = Math.round((p.present / p.invited) * 100);
+
+                    return (
+                      <tr key={p.name} className="border-t border-slate-100 transition hover:bg-blue-50/40">
+                        <td className="px-5 py-3">
+                          <p className="font-medium text-slate-800">{p.name}</p>
+                          <p className="text-xs text-muted-foreground">{p.position}</p>
+                        </td>
+                        <td className="px-5 py-3 text-center text-slate-600">{p.invited}</td>
+                        <td className="px-5 py-3 text-center text-slate-600">{p.present}</td>
+                        <td className="px-5 py-3 text-center text-slate-600">{p.excused}</td>
+                        <td className="px-5 py-3 text-center text-slate-600">{p.absent}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <div
+                              role="progressbar"
+                              aria-valuenow={rate}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-label={`Tingkat kehadiran ${p.name}`}
+                              className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-200"
+                            >
+                              <div className={`h-full rounded-full ${rate >= 75 ? "bg-emerald-500" : rate >= 50 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${rate}%` }} />
+                            </div>
+                            <span className="text-xs font-medium text-slate-600">{rate}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {recap.list.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-muted-foreground">Belum ada rapat selesai pada unit ini.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Pencatatan kehadiran dilakukan oleh notulis atau pimpinan rapat; pembatasan hak ini akan ditegakkan di server.
+      </p>
     </div>
   );
 }
