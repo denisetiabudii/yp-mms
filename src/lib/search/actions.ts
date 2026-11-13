@@ -32,6 +32,10 @@ function formatDate(value: string) {
  *
  * - Berjalan dengan sesi pengguna, jadi RLS tetap berlaku: notulen yang tidak
  *   boleh dilihat (mis. klasifikasi Rahasia) tidak akan muncul.
+ * - Hak akses ditentukan di sini dari sesi dan database, TIDAK dari argumen
+ *   yang dikirim klien. Fungsi ini sengaja hanya menerima `query`; jangan
+ *   menambah parameter role atau unit dari klien. Seluruh "pembatasan"
+ *   sesungguhnya harus ada di RLS, bukan di filter UI.
  * - Input diperlakukan sebagai data tak tepercaya: dibersihkan, dibatasi,
  *   dan wildcard LIKE di-escape. Tidak ada .or() dari string input.
  */

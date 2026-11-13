@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/sidebar";
 import type { AppRole } from "@/lib/auth/roles";
 
-type NavItem = {
+export type NavItem = {
   title: string;
   url: string;
   icon: ComponentType<{ className?: string }>;
@@ -45,7 +45,7 @@ type NavItem = {
 const ADMIN_ONLY: readonly AppRole[] = ["super_admin"];
 
 // MENU RUANG KERJA
-const workspaceItems: NavItem[] = [
+export const workspaceItems: NavItem[] = [
   { title: "Dasbor", url: "/dashboard", icon: LayoutDashboard, iconColor: "text-blue-600" },
   { title: "Kalender Rapat", url: "/calendar", icon: CalendarDays, iconColor: "text-amber-600" },
   { title: "Rapat", url: "/meetings", icon: CalendarCheck, iconColor: "text-blue-600" },
@@ -57,13 +57,22 @@ const workspaceItems: NavItem[] = [
 ];
 
 // MENU ADMINISTRASI
-const managementItems: NavItem[] = [
+export const managementItems: NavItem[] = [
   { title: "Arsip Rapat", url: "/archive", icon: Archive, iconColor: "text-amber-600" },
   { title: "Laporan", url: "/reports", icon: BarChart3, iconColor: "text-cyan-600" },
   { title: "Organisasi", url: "/organization", icon: Building2, iconColor: "text-violet-600", roles: ADMIN_ONLY },
   { title: "Pengguna & Hak Akses", url: "/users", icon: ShieldCheck, iconColor: "text-emerald-600", roles: ADMIN_ONLY },
   { title: "Audit Log", url: "/audit-log", icon: ScrollText, iconColor: "text-slate-600", roles: ADMIN_ONLY },
 ];
+
+/**
+ * Satu-satunya aturan "menu ini boleh tampil untuk role ini". Dipakai sidebar
+ * dan pencarian di header, supaya keduanya tidak pernah berbeda. Hanya
+ * kenyamanan UI: akses sebenarnya tetap ditegakkan di server.
+ */
+export function isNavItemAllowed(item: NavItem, role: AppRole) {
+  return !item.roles || item.roles.includes(role);
+}
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -95,7 +104,7 @@ export function AppSidebar({ role }: { role: AppRole }) {
   const [managementOpen, setManagementOpen] = useState(false);
 
   const visible = (items: NavItem[]) =>
-    items.filter((item) => !item.roles || item.roles.includes(role));
+    items.filter((item) => isNavItemAllowed(item, role));
 
   const workspace = visible(workspaceItems);
   const management = visible(managementItems);
@@ -113,13 +122,17 @@ export function AppSidebar({ role }: { role: AppRole }) {
             isActive={isActive}
             tooltip={item.title}
             className="
+              rounded-lg
               text-slate-700
               transition-colors
-              hover:bg-blue-50
-              hover:text-blue-700
-              data-[active=true]:bg-blue-100
-              data-[active=true]:text-blue-700
+              hover:bg-[#EAF0FB]
+              hover:text-slate-900
+              focus-visible:ring-2
+              focus-visible:ring-[#2563EB]/40
+              data-[active=true]:bg-[#DFE9FB]
               data-[active=true]:font-semibold
+              data-[active=true]:text-[#1D4ED8]
+              data-[active=true]:shadow-[inset_3px_0_0_#2563EB]
             "
           >
             <item.icon className={`${item.iconColor} size-4 shrink-0 transition-colors`} />
@@ -129,8 +142,17 @@ export function AppSidebar({ role }: { role: AppRole }) {
       );
     });
 
+  const groupLabelClass =
+    "text-[11px] font-semibold uppercase tracking-wider text-slate-500 group-data-[collapsible=icon]:hidden";
+
+  const accordionButtonClass =
+    "rounded-lg font-semibold text-slate-800 hover:bg-[#EAF0FB] focus-visible:ring-2 focus-visible:ring-[#2563EB]/40";
+
   return (
-    <Sidebar collapsible="icon" className="bg-[#F8FAFC] text-slate-700">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-[#E1E8F3] bg-[#F6F8FC] text-slate-700"
+    >
       <SidebarContent>
         {/* RUANG KERJA */}
         {workspace.length > 0 && (
@@ -141,12 +163,13 @@ export function AppSidebar({ role }: { role: AppRole }) {
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       onClick={() => setWorkspaceOpen((previous) => !previous)}
-                      className="font-semibold"
+                      aria-expanded={workspaceOpen}
+                      className={accordionButtonClass}
                     >
                       <LayoutDashboard />
                       <span>Ruang Kerja</span>
                       <ChevronDown
-                        className={`ml-auto transition-transform ${workspaceOpen ? "rotate-180" : ""}`}
+                        className={`ml-auto text-slate-500 transition-transform ${workspaceOpen ? "rotate-180" : ""}`}
                       />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -158,7 +181,7 @@ export function AppSidebar({ role }: { role: AppRole }) {
               </>
             ) : (
               <>
-                <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wider text-slate-400 group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel className={groupLabelClass}>
                   Ruang Kerja
                 </SidebarGroupLabel>
 
@@ -177,12 +200,13 @@ export function AppSidebar({ role }: { role: AppRole }) {
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       onClick={() => setManagementOpen((previous) => !previous)}
-                      className="font-semibold"
+                      aria-expanded={managementOpen}
+                      className={accordionButtonClass}
                     >
                       <Building2 />
                       <span>Administrasi</span>
                       <ChevronDown
-                        className={`ml-auto transition-transform ${managementOpen ? "rotate-180" : ""}`}
+                        className={`ml-auto text-slate-500 transition-transform ${managementOpen ? "rotate-180" : ""}`}
                       />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -194,7 +218,7 @@ export function AppSidebar({ role }: { role: AppRole }) {
               </>
             ) : (
               <>
-                <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel className={groupLabelClass}>
                   Administrasi
                 </SidebarGroupLabel>
 
@@ -206,8 +230,8 @@ export function AppSidebar({ role }: { role: AppRole }) {
       </SidebarContent>
 
       {/* SIDEBAR FOOTER */}
-      <SidebarFooter className="border-t p-3 group-data-[collapsible=icon]:hidden">
-        <p className="text-xs text-muted-foreground">YP-MMS · Yuk Peduli Grup</p>
+      <SidebarFooter className="border-t border-[#E1E8F3] p-3 group-data-[collapsible=icon]:hidden">
+        <p className="text-xs text-slate-500">YP-MMS · Yuk Peduli Grup</p>
       </SidebarFooter>
     </Sidebar>
   );
