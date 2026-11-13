@@ -2,19 +2,10 @@
 
 import { redirect } from "next/navigation";
 
+import { validatePassword } from "@/lib/auth/password";
 import { createClient } from "@/lib/supabase/server";
 
 export type ResetState = { error?: string };
-
-/** Aturan minimal; sesuaikan juga di Supabase → Authentication → Password security. */
-function validatePassword(password: string) {
-  if (password.length < 10) return "Kata sandi minimal 10 karakter.";
-  if (password.length > 128) return "Kata sandi maksimal 128 karakter.";
-  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
-    return "Kata sandi harus mengandung huruf dan angka.";
-  }
-  return null;
-}
 
 export async function updatePasswordAction(
   _previous: ResetState,
