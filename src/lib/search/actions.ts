@@ -1,6 +1,6 @@
 "use server";
 
-import type { SearchResult } from "@/components/layout/app-header";
+import type { SearchResult } from "@/lib/search/types";
 import { createClient } from "@/lib/supabase/server";
 
 const MIN_QUERY_LENGTH = 2;
