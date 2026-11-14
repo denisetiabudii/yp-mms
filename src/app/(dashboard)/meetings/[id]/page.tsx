@@ -16,7 +16,11 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { MeetingActions } from "@/components/meetings/meeting-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { canManageMeeting } from "@/lib/access";
+import { ACTION_ITEMS, isOpen } from "@/lib/actions";
+import { getSessionState } from "@/lib/auth/session";
 import {
   ATTENDANCE_STATUSES,
   attendanceStyles,
@@ -43,6 +47,12 @@ export default async function MeetingDetailPage({ params }: Props) {
   // TODO (backend): selain "tidak ada", tampilkan notFound() juga untuk rapat
   // yang tidak boleh diakses pengguna (cegah IDOR; jangan bocorkan keberadaannya).
   if (!meeting) notFound();
+
+  const session = await getSessionState();
+  const canManage =
+    session.status === "ok" &&
+    canManageMeeting(meeting, { name: session.user.fullName, role: session.user.role });
+  const openActionItems = ACTION_ITEMS.filter((a) => a.meetingId === meeting.id && isOpen(a.status)).length;
 
   const unit = getUnit(meeting.unitId);
   const department = getDepartment(meeting.departmentId);
@@ -98,6 +108,8 @@ export default async function MeetingDetailPage({ params }: Props) {
           </div>
         </div>
       </div>
+
+      <MeetingActions meeting={meeting} canManage={canManage} openActionItems={openActionItems} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">

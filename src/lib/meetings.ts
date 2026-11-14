@@ -376,3 +376,93 @@ export const attendanceStyles: Record<AttendanceStatus, string> = {
   Sakit: "border-orange-200 bg-orange-100 text-orange-700",
   "Tidak hadir": "border-rose-200 bg-rose-100 text-rose-700",
 };
+
+/* ------------------------- Ubah / batalkan rapat ------------------------- */
+
+/**
+ * Alasan rapat tidak boleh diubah/dibatalkan, atau null bila boleh.
+ * Hanya rapat berstatus Dijadwalkan yang bisa diubah; rapat yang sudah
+ * berjalan dicatat lewat notulen, bukan lewat penjadwalan ulang.
+ */
+export function meetingLock(meeting: Meeting): string | null {
+  if (meeting.status === "Dibatalkan") return "Rapat ini sudah dibatalkan.";
+  if (meeting.status === "Berlangsung") return "Rapat sedang berlangsung dan tidak dapat diubah.";
+  if (meeting.status === "Selesai") return "Rapat sudah selesai. Catat hasilnya di notulen.";
+
+  return null;
+}
+
+export type MeetingDraft = {
+  title: string;
+  purpose: string;
+  typeId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  mode: MeetingMode;
+  location: string;
+  link: string;
+  leader: string;
+  notetaker: string;
+  classification: Classification;
+  participantNames: string[];
+  agenda: { topic: string; owner: string; duration: string }[];
+};
+
+/**
+ * Bandingkan data rapat asli dengan isian formulir.
+ * - scheduleChanged: tanggal/waktu/tempat/tautan berubah → peserta harus diberi tahu dan alasan wajib.
+ * - classificationChanged: perubahan klasifikasi sensitif → alasan wajib dan masuk audit.
+ */
+export function describeMeetingChanges(original: Meeting, draft: MeetingDraft) {
+  const changes: string[] = [];
+  const add = (label: string, before: string, after: string) => {
+    if (before !== after) changes.push(`${label}: ${before || "—"} → ${after || "—"}`);
+  };
+
+  add("Judul", original.title, draft.title.trim());
+  add("Tujuan", original.purpose, draft.purpose.trim());
+  add("Jenis", getMeetingType(original.typeId)?.name ?? "", getMeetingType(draft.typeId)?.name ?? "");
+  add("Tanggal", formatDate(original.date), draft.date ? formatDate(draft.date) : "");
+  add("Waktu", formatTimeRange(original.startTime, original.endTime), formatTimeRange(draft.startTime, draft.endTime));
+  add("Pelaksanaan", original.mode, draft.mode);
+  add("Lokasi", original.location, draft.location.trim());
+  add("Tautan", original.link ?? "", draft.link.trim());
+  add("Pimpinan", original.leader, draft.leader);
+  add("Notulis", original.notetaker, draft.notetaker);
+  add("Klasifikasi", original.classification, draft.classification);
+
+  const before = new Set(original.participants.map((p) => p.name));
+  const after = new Set(draft.participantNames);
+  const added = [...after].filter((n) => !before.has(n));
+  const removed = [...before].filter((n) => !after.has(n));
+
+  if (added.length) changes.push(`Peserta ditambah: ${added.join(", ")}`);
+  if (removed.length) changes.push(`Peserta dihapus: ${removed.join(", ")}`);
+
+  const norm = (items: { topic: string; owner: string; duration: string }[]) =>
+    JSON.stringify(
+      items
+        .filter((a) => a.topic.trim())
+        .map((a) => [a.topic.trim(), a.owner, a.duration ? Number(a.duration) : null]),
+    );
+  const originalAgenda = original.agenda.map((a) => ({
+    topic: a.topic,
+    owner: a.owner,
+    duration: a.durationMinutes ? String(a.durationMinutes) : "",
+  }));
+
+  if (norm(originalAgenda) !== norm(draft.agenda)) changes.push("Agenda diubah");
+
+  return {
+    changes,
+    scheduleChanged:
+      original.date !== draft.date ||
+      original.startTime !== draft.startTime ||
+      original.endTime !== draft.endTime ||
+      original.mode !== draft.mode ||
+      original.location !== draft.location.trim() ||
+      (original.link ?? "") !== draft.link.trim(),
+    classificationChanged: original.classification !== draft.classification,
+  };
+}

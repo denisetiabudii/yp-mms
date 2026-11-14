@@ -14,7 +14,9 @@ import {
   PEOPLE,
   UNITS,
   previewMeetingNumber,
+  describeMeetingChanges,
   type Classification,
+  type Meeting,
   type MeetingMode,
 } from "@/lib/meetings";
 
@@ -49,7 +51,8 @@ type FormErrors = Partial<
     | "location"
     | "leader"
     | "agenda"
-    | "link",
+    | "link"
+    | "reason",
     string
   >
 >;
@@ -86,33 +89,65 @@ function Field({
   );
 }
 
-export function NewMeetingForm({ initialDate }: { initialDate: string }) {
-  const nextKey = React.useRef(2);
+/**
+ * Formulir rapat. Tanpa `meeting` = membuat rapat baru; dengan `meeting` = mengubah
+ * rapat yang sudah ada (hanya yang berstatus Dijadwalkan; dijaga oleh halaman edit).
+ */
+export function NewMeetingForm({
+  initialDate,
+  meeting,
+}: {
+  initialDate: string;
+  meeting?: Meeting;
+}) {
+  const nextKey = React.useRef(meeting ? meeting.agenda.length + 1 : 2);
 
-  const [title, setTitle] = React.useState("");
-  const [purpose, setPurpose] = React.useState("");
-  const [typeId, setTypeId] = React.useState<string>(MEETING_TYPES[0].id);
-  const [unitId, setUnitId] = React.useState("");
-  const [departmentId, setDepartmentId] = React.useState("");
-  const [date, setDate] = React.useState(initialDate);
-  const [startTime, setStartTime] = React.useState("");
-  const [endTime, setEndTime] = React.useState("");
-  const [mode, setMode] = React.useState<MeetingMode>("Luring");
-  const [location, setLocation] = React.useState("");
-  const [link, setLink] = React.useState("");
-  const [leader, setLeader] = React.useState("");
-  const [notetaker, setNotetaker] = React.useState("");
+  const [title, setTitle] = React.useState(meeting?.title ?? "");
+  const [purpose, setPurpose] = React.useState(meeting?.purpose ?? "");
+  const [typeId, setTypeId] = React.useState<string>(meeting?.typeId ?? MEETING_TYPES[0].id);
+  const [unitId, setUnitId] = React.useState(meeting?.unitId ?? "");
+  const [departmentId, setDepartmentId] = React.useState(meeting?.departmentId ?? "");
+  const [date, setDate] = React.useState(meeting?.date ?? initialDate);
+  const [startTime, setStartTime] = React.useState(meeting?.startTime ?? "");
+  const [endTime, setEndTime] = React.useState(meeting?.endTime ?? "");
+  const [mode, setMode] = React.useState<MeetingMode>(meeting?.mode ?? "Luring");
+  const [location, setLocation] = React.useState(meeting?.location ?? "");
+  const [link, setLink] = React.useState(meeting?.link ?? "");
+  const [leader, setLeader] = React.useState(meeting?.leader ?? "");
+  const [notetaker, setNotetaker] = React.useState(meeting?.notetaker ?? "");
   const [classification, setClassification] =
-    React.useState<Classification>("Internal");
-  const [participantIds, setParticipantIds] = React.useState<string[]>([]);
-  const [agenda, setAgenda] = React.useState<AgendaDraft[]>([
-    { key: 1, topic: "", owner: "", duration: "" },
-  ]);
+    React.useState<Classification>(meeting?.classification ?? "Internal");
+  const [participantIds, setParticipantIds] = React.useState<string[]>(() =>
+    meeting
+      ? PEOPLE.filter((p) => meeting.participants.some((x) => x.name === p.name)).map((p) => p.id)
+      : [],
+  );
+  const [agenda, setAgenda] = React.useState<AgendaDraft[]>(() =>
+    meeting
+      ? meeting.agenda.map((a, index) => ({
+          key: index + 1,
+          topic: a.topic,
+          owner: a.owner,
+          duration: a.durationMinutes ? String(a.durationMinutes) : "",
+        }))
+      : [{ key: 1, topic: "", owner: "", duration: "" }],
+  );
 
   const [errors, setErrors] = React.useState<FormErrors>({});
   const [saved, setSaved] = React.useState(false);
+  const [reason, setReason] = React.useState("");
 
   const departments = DEPARTMENTS.filter((d) => d.unitId === unitId);
+
+  // Mode ubah: bandingkan dengan data asli untuk tahu apa yang berubah dan apakah alasan wajib.
+  const diff = meeting
+    ? describeMeetingChanges(meeting, {
+        title, purpose, typeId, date, startTime, endTime, mode, location, link, leader, notetaker, classification,
+        participantNames: PEOPLE.filter((p) => participantIds.includes(p.id)).map((p) => p.name),
+        agenda: agenda.map((a) => ({ topic: a.topic, owner: a.owner, duration: a.duration })),
+      })
+    : null;
+  const needsReason = !!diff && (diff.scheduleChanged || diff.classificationChanged);
 
   function handleUnitChange(value: string) {
     setUnitId(value);
@@ -169,6 +204,12 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
       next.agenda = "Minimal satu agenda harus diisi.";
     }
 
+    if (diff) {
+      if (needsReason && reason.trim().length < 5) {
+        next.reason = "Alasan perubahan wajib diisi (minimal 5 karakter).";
+      }
+    }
+
     return next;
   }
 
@@ -203,20 +244,24 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
         <Card className="border-emerald-200 shadow-sm">
           <CardContent className="space-y-4 p-8 text-center">
             <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
-            <h1 className="text-xl font-bold">Data rapat lolos validasi</h1>
+            <h1 className="text-xl font-bold">
+              {meeting ? "Perubahan rapat lolos validasi" : "Data rapat lolos validasi"}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Form belum tersambung ke backend, jadi rapat ini belum benar-benar
-              tersimpan.
+              Form belum tersambung ke backend, jadi {meeting ? "perubahan" : "rapat"} ini belum benar-benar tersimpan.
             </p>
+
+            {diff && diff.changes.length > 0 && (
+              <ul className="mx-auto max-w-md list-disc space-y-1 rounded-lg bg-slate-50 py-3 pl-8 pr-4 text-left text-xs text-slate-600">
+                {diff.changes.map((c) => (<li key={c}>{c}</li>))}
+              </ul>
+            )}
+
             <div className="flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href="/meetings" className={primaryButton}>
-                Kembali ke daftar rapat
+              <Link href={meeting ? `/meetings/${meeting.id}` : "/meetings"} className={primaryButton}>
+                {meeting ? "Kembali ke detail rapat" : "Kembali ke daftar rapat"}
               </Link>
-              <button
-                type="button"
-                onClick={() => setSaved(false)}
-                className={secondaryButton}
-              >
+              <button type="button" onClick={() => setSaved(false)} className={secondaryButton}>
                 Ubah lagi
               </button>
             </div>
@@ -233,15 +278,15 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
       {/* HEADER */}
       <div className="space-y-3">
         <Link
-          href="/meetings"
+          href={meeting ? `/meetings/${meeting.id}` : "/meetings"}
           className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-700"
         >
           <ArrowLeft className="size-4" />
-          Kembali ke daftar rapat
+          {meeting ? "Kembali ke detail rapat" : "Kembali ke daftar rapat"}
         </Link>
 
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Buat Rapat</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{meeting ? "Ubah Rapat" : "Buat Rapat"}</h1>
           <p className="text-sm text-muted-foreground">
             Isi data rapat, peserta, dan agenda. Kolom bertanda{" "}
             <span className="text-red-500">*</span> wajib diisi.
@@ -333,11 +378,18 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
               </select>
             </Field>
 
-            <Field id="field-unitId" label="Unit" required error={errors.unitId}>
+            <Field
+              id="field-unitId"
+              label="Unit"
+              required
+              error={errors.unitId}
+              hint={meeting ? "Unit tidak dapat diubah agar nomor rapat tetap. Bila salah unit, batalkan lalu buat rapat baru." : undefined}
+            >
               <select
                 id="field-unitId"
                 value={unitId}
                 onChange={(e) => handleUnitChange(e.target.value)}
+                disabled={!!meeting}
                 aria-invalid={!!errors.unitId}
                 aria-describedby={errors.unitId ? "field-unitId-error" : undefined}
                 className={controlClass}
@@ -364,7 +416,7 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
                 id="field-departmentId"
                 value={departmentId}
                 onChange={(e) => setDepartmentId(e.target.value)}
-                disabled={departments.length === 0}
+                disabled={!!meeting || departments.length === 0}
                 className={`${controlClass} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
               >
                 <option value="">
@@ -379,12 +431,12 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
             </Field>
 
             <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 sm:col-span-2">
-              <p className="text-xs text-slate-500">Pratinjau nomor rapat</p>
+              <p className="text-xs text-slate-500">{meeting ? "Nomor rapat" : "Pratinjau nomor rapat"}</p>
               <p className="mt-1 font-mono text-sm font-semibold text-blue-800">
-                {numberPreview}
+                {meeting ? meeting.number : numberPreview}
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Nomor urut dibuat otomatis oleh sistem saat rapat disimpan.
+                {meeting ? "Nomor rapat tetap dan tidak berubah." : "Nomor urut dibuat otomatis oleh sistem saat rapat disimpan."}
               </p>
             </div>
           </CardContent>
@@ -646,13 +698,61 @@ export function NewMeetingForm({ initialDate }: { initialDate: string }) {
           </CardContent>
         </Card>
 
+        {/* ALASAN PERUBAHAN (hanya mode ubah, bila jadwal/klasifikasi berubah) */}
+        {diff && (
+          <Card className="border-[#DBEAFE] shadow-sm">
+            <CardHeader className="border-b bg-[#F8FAFC]">
+              <CardTitle className="text-base">Ringkasan Perubahan</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 p-5">
+              {diff.changes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Belum ada perubahan dari data semula.</p>
+              ) : (
+                <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                  {diff.changes.map((c) => (<li key={c}>{c}</li>))}
+                </ul>
+              )}
+
+              {diff.scheduleChanged && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Jadwal atau tempat berubah: seluruh peserta akan menerima pemberitahuan perubahan.
+                </p>
+              )}
+
+              {needsReason && (
+                <Field
+                  id="field-reason"
+                  label="Alasan perubahan"
+                  required
+                  error={errors.reason}
+                  hint="Dicatat di audit log dan disertakan pada pemberitahuan ke peserta."
+                >
+                  <textarea
+                    id="field-reason"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    aria-invalid={!!errors.reason}
+                    aria-describedby={errors.reason ? "field-reason-error" : undefined}
+                    className={textareaClass}
+                    maxLength={300}
+                  />
+                </Field>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* AKSI */}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Link href="/meetings" className={secondaryButton}>
+          <Link href={meeting ? `/meetings/${meeting.id}` : "/meetings"} className={secondaryButton}>
             Batal
           </Link>
-          <button type="submit" className={primaryButton}>
-            Simpan Rapat
+          <button
+            type="submit"
+            disabled={!!diff && diff.changes.length === 0}
+            className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {meeting ? "Simpan Perubahan" : "Simpan Rapat"}
           </button>
         </div>
       </form>

@@ -32,3 +32,15 @@ export function canViewMeeting(meeting: Meeting, viewer: Viewer) {
     ? SECRET_ROLES.includes(viewer.role)
     : INTERNAL_ROLES.includes(viewer.role);
 }
+
+/** Peran yang boleh menyunting atau membatalkan rapat orang lain (selain pimpinan dan notulisnya). */
+const MANAGE_ROLES: readonly AppRole[] = ["super_admin", "ceo", "direktur_unit"];
+
+/** Hak mengubah/membatalkan rapat. Penegakan sebenarnya di server (Server Action + RLS). */
+export function canManageMeeting(meeting: Meeting, viewer: Viewer) {
+  return (
+    meeting.leader === viewer.name ||
+    meeting.notetaker === viewer.name ||
+    MANAGE_ROLES.includes(viewer.role)
+  );
+}
