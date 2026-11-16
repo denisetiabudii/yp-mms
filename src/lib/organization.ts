@@ -100,143 +100,88 @@ export function countDescendants(node: OrgNode): number {
   return node.children.reduce((sum, child) => sum + 1 + countDescendants(child), 0);
 }
 
+/* ------------------- Pembacaan dari database (Supabase) ------------------- */
 
-/**
- * Bentuk data org_nodes dari Supabase.
- * Nilai kind di database menggunakan enum huruf kecil.
- */
-export type OrgDbKind = "grup" | "unit" | "departemen" | "divisi";
-
+/** Baris tabel public.org_nodes. */
 export type OrgRow = {
   id: string;
   parent_id: string | null;
-  kind: OrgDbKind;
+  kind: "grup" | "unit" | "departemen" | "divisi";
   name: string;
   code: string | null;
   is_active: boolean;
   sort_order: number;
 };
 
+const KIND_LABEL: Record<OrgRow["kind"], OrgKind> = {
+  grup: "Grup",
+  unit: "Unit",
+  departemen: "Departemen",
+  divisi: "Divisi",
+};
 
-/**
- * Mengubah baris org_nodes dari database menjadi pohon OrgNode
- * yang digunakan oleh OrganizationView.
- *
- * Mengembalikan null jika struktur organisasi belum memiliki Grup.
- */
+/** Susun baris datar menjadi pohon. Mengembalikan null bila tidak ada grup (data belum disemai). */
 export function buildOrgTree(rows: OrgRow[]): OrgNode | null {
-  const kindMap: Record<OrgDbKind, OrgKind> = {
-    grup: "Grup",
-    unit: "Unit",
-    departemen: "Departemen",
-    divisi: "Divisi",
-  };
+  const byParent = new Map<string | null, OrgRow[]>();
 
-  // Urutkan berdasarkan sort_order, lalu nama.
-  const sortedRows = [...rows].sort(
-    (a, b) =>
-      a.sort_order - b.sort_order ||
-      a.name.localeCompare(b.name),
-  );
+  rows.forEach((row) => {
+    const list = byParent.get(row.parent_id) ?? [];
 
-  // Siapkan seluruh node terlebih dahulu agar relasi induk-anak tersedia.
-  const nodeMap = new Map<string, OrgNode>();
+    list.push(row);
+    byParent.set(row.parent_id, list);
+  });
 
-  for (const row of sortedRows) {
-    nodeMap.set(row.id, {
-      id: row.id,
-      name: row.name,
-      kind: kindMap[row.kind],
-      code: row.code ?? undefined,
-      active: row.is_active,
-      children: [],
-    });
-  }
+  const build = (row: OrgRow): OrgNode => ({
+    id: row.id,
+    name: row.name,
+    kind: KIND_LABEL[row.kind],
+    code: row.code ?? undefined,
+    active: row.is_active,
+    children: (byParent.get(row.id) ?? [])
+      .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+      .map(build),
+  });
 
-  let root: OrgNode | null = null;
+  const root = (byParent.get(null) ?? []).find((row) => row.kind === "grup");
 
-  // Hubungkan setiap node dengan induknya.
-  for (const row of sortedRows) {
-    const node = nodeMap.get(row.id)!;
-
-    if (row.parent_id === null) {
-      if (node.kind !== "Grup") return null;
-      root = node;
-      continue;
-    }
-
-    const parent = nodeMap.get(row.parent_id);
-
-    // Struktur tidak valid jika induknya tidak ditemukan.
-    if (!parent) return null;
-
-    parent.children.push(node);
-  }
-
-  return root;
+  return root ? build(root) : null;
 }
 
 /**
- * Menghitung jumlah pengguna aktif pada setiap node organisasi.
- *
- * Penugasan berada pada node terdalam.
- * Jumlah anggota juga dihitung pada seluruh induknya.
- * Satu pengguna hanya dihitung satu kali pada setiap node,
- * meskipun memiliki beberapa jabatan atau penugasan.
+ * Jumlah pengguna AKTIF per node, termasuk penugasan di turunannya
+ * (orang yang ditugaskan di departemen ikut terhitung di unitnya).
+ * Satu orang dengan beberapa penugasan di cabang yang sama dihitung sekali.
  */
 export function computeMemberCounts(
   rows: OrgRow[],
-  assignments: {
-    user_id: string;
-    org_node_id: string;
-    position_id: string;
-  }[],
-  activeProfileIds: Set<string>,
+  assignments: { user_id: string; org_node_id: string }[],
+  activeUserIds: ReadonlySet<string>,
 ): Record<string, number> {
-  const nodeMap = new Map(rows.map((row) => [row.id, row]));
+  const children = new Map<string, string[]>();
 
-  // Set mencegah pengguna yang sama dihitung berulang.
-  const membersByNode = new Map<string, Set<string>>();
+  rows.forEach((row) => {
+    if (row.parent_id) children.set(row.parent_id, [...(children.get(row.parent_id) ?? []), row.id]);
+  });
 
-  for (const assignment of assignments) {
-    const { user_id, org_node_id } = assignment;
+  const direct = new Map<string, Set<string>>();
 
-    // Abaikan profil yang tidak aktif.
-    if (!activeProfileIds.has(user_id)) continue;
+  assignments.forEach((a) => {
+    if (!activeUserIds.has(a.user_id)) return;
+    direct.set(a.org_node_id, (direct.get(a.org_node_id) ?? new Set()).add(a.user_id));
+  });
 
-    const assignedNode = nodeMap.get(org_node_id);
+  const counts: Record<string, number> = {};
 
-    // Abaikan penugasan pada node yang tidak tersedia atau nonaktif.
-    if (!assignedNode || !assignedNode.is_active) continue;
+  const collect = (id: string): Set<string> => {
+    const users = new Set(direct.get(id) ?? []);
 
-    // Hitung pengguna pada node penugasan dan seluruh induknya.
-    let current: OrgRow | undefined = assignedNode;
-    const visited = new Set<string>();
+    (children.get(id) ?? []).forEach((childId) => collect(childId).forEach((u) => users.add(u)));
+    counts[id] = users.size;
 
-    while (current) {
-      // Perlindungan jika terdapat relasi melingkar.
-      if (visited.has(current.id)) break;
-      visited.add(current.id);
+    return users;
+  };
 
-      if (!current.is_active) break;
+  rows.filter((row) => row.parent_id === null).forEach((row) => collect(row.id));
 
-      if (!membersByNode.has(current.id)) {
-        membersByNode.set(current.id, new Set<string>());
-      }
-
-      membersByNode.get(current.id)!.add(user_id);
-
-      current = current.parent_id
-        ? nodeMap.get(current.parent_id)
-        : undefined;
-    }
-  }
-
-  // Konversi hasil Set menjadi Record<string, number>.
-  return Object.fromEntries(
-    Array.from(membersByNode, ([nodeId, members]) => [
-      nodeId,
-      members.size,
-    ]),
-  );
+  return counts;
 }

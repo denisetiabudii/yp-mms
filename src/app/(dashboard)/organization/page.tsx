@@ -37,7 +37,7 @@ export default async function OrganizationPage() {
   }
 
   const assignmentRows = (assignments.data ?? []) as { user_id: string; org_node_id: string; position_id: string }[];
-  const activeIds = new Set((activeProfiles.data ?? []).map((p: { id: string }) => p.id));
+  const activeIds = new Set<string>((activeProfiles.data ?? []).map((p: { id: string }) => p.id));
   const memberCounts = computeMemberCounts(rows, assignmentRows, activeIds);
 
   const used = new Map<string, number>();
