@@ -25,6 +25,7 @@ import {
   updateUserRoleAction,
   type ActionResult,
 } from "./actions";
+import { resendInviteAction } from "./invite/actions";
 
 export type UserVM = {
   id: string;
@@ -144,6 +145,14 @@ export function UsersView({
             ? `${user.name} diaktifkan kembali.`
             : `${user.name} dinonaktifkan. Ia tidak dapat masuk lagi, tetapi riwayatnya tetap tersimpan.`,
         }),
+      showError,
+    );
+  }
+
+  function resendInvite(user: UserVM) {
+    run(
+      () => resendInviteAction(user.id),
+      () => setNotice({ tone: "success", text: `Undangan dikirim ulang ke ${user.email}.` }),
       showError,
     );
   }
@@ -382,6 +391,12 @@ export function UsersView({
                               <Pencil className="size-3.5" />
                               Ubah
                             </button>
+
+                            {user.status === "Diundang" && (
+                              <button type="button" onClick={() => resendInvite(user)} disabled={pending} className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60">
+                                Kirim ulang
+                              </button>
+                            )}
 
                             {confirmId === user.id ? (
                               <div className="flex flex-col items-center gap-1.5">

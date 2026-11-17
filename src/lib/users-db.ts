@@ -3,6 +3,7 @@
  * Dipakai di server (Server Action memvalidasi ulang) dan klien (umpan balik cepat).
  */
 
+import { isAppRole } from "@/lib/auth/roles";
 import type { OrgRow } from "@/lib/organization";
 import { UUID_PATTERN, normalizeName } from "@/lib/org-validation";
 
@@ -130,4 +131,72 @@ export function mapUserDbError(error: DbError) {
     default:
       return "Terjadi kesalahan. Coba lagi.";
   }
+}
+
+/* ------------------------------- Undangan ------------------------------- */
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+export type InviteInput = {
+  email: string;
+  fullName: string;
+  employeeNo: string;
+  role: string;
+  items: AssignmentItem[];
+};
+
+/**
+ * Validasi undangan. Dipakai klien dan Server Action; menerima nilai apa pun
+ * (data dari klien tidak dipercaya), jadi tipe diperiksa saat runtime.
+ */
+export function validateInvite(input: unknown): string | null {
+  const data = input as Partial<InviteInput> | null;
+
+  if (!data || typeof data !== "object") return "Data undangan tidak valid.";
+  if (typeof data.email !== "string" || typeof data.fullName !== "string") return "Data undangan tidak valid.";
+  if (typeof data.employeeNo !== "string" || typeof data.role !== "string") return "Data undangan tidak valid.";
+
+  const email = normalizeEmail(data.email);
+
+  if (!email) return "Email wajib diisi.";
+  if (email.length > 254 || !EMAIL_PATTERN.test(email)) return "Format email tidak valid.";
+
+  const profile = validateUserProfile(data.fullName, data.employeeNo);
+
+  if (profile) return profile;
+  if (!isAppRole(data.role)) return "Role tidak valid.";
+  if (!Array.isArray(data.items) || data.items.length === 0) return "Minimal satu penugasan wajib diisi.";
+
+  return validateAssignmentItems(data.items);
+}
+
+type InviteError = { status?: number; code?: string; message?: string } | null | undefined;
+
+/**
+ * Terjemahkan galat Supabase Auth Admin menjadi pesan pengguna. Pesan mentah tidak
+ * ditampilkan; galat tak dikenal dibuat generik. `resend` = konteks kirim ulang.
+ */
+export function mapInviteError(error: InviteError, resend = false) {
+  const code = error?.code ?? "";
+  const message = (error?.message ?? "").toLowerCase();
+
+  if (code === "email_exists" || code === "user_already_exists" || message.includes("already been registered")) {
+    return resend
+      ? "Kirim ulang otomatis tidak berhasil untuk akun ini. Kirim ulang lewat Dashboard Supabase (Authentication → Users)."
+      : "Email ini sudah terdaftar.";
+  }
+
+  if (error?.status === 429 || code.startsWith("over_") || message.includes("rate limit")) {
+    return "Batas pengiriman email tercapai. Coba lagi nanti, atau pasang SMTP sendiri di Supabase.";
+  }
+
+  if (code === "email_address_invalid" || message.includes("invalid email")) return "Alamat email tidak valid.";
+
+  if (error?.status === 401 || error?.status === 403 || message.includes("invalid api key") || message.includes("not allowed")) {
+    return "Kunci server Supabase tidak valid atau tidak berizin. Periksa SUPABASE_SECRET_KEY.";
+  }
+
+  return "Gagal mengirim undangan. Coba lagi.";
 }
