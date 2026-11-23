@@ -12,6 +12,10 @@ const MESSAGES = {
     title: "Profil akun belum siap",
     text: "Akun Anda berhasil masuk, tetapi profil pengguna belum tersedia. Hubungi administrator.",
   },
+    "service-error": {
+    title: "Layanan sedang bermasalah",
+    text: "Kami belum dapat memverifikasi sesi akun Anda. Silakan coba beberapa saat lagi.",
+  },
 } as const;
 
 /** Layar penghenti untuk akun yang punya sesi tetapi tidak berhak mengakses sistem. */

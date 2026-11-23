@@ -133,6 +133,64 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
+
+  // Pengguna yang belum memiliki password hanya boleh mengakses
+  // halaman reset-password, termasuk ketika membuka route publik.
+  // Halaman reset sendiri dikecualikan agar undangan dan recovery berjalan.
+  if (isAuthenticated && userId && pathname !== "/reset-password") {
+    let passwordResult = await supabase.rpc("my_password_set");
+
+    // Ulangi sekali jika terjadi gangguan sementara.
+    if (passwordResult.error) {
+      passwordResult = await supabase.rpc("my_password_set");
+    }
+
+    const passwordSet = passwordResult.data;
+    const passwordCheckError =
+      passwordResult.error || typeof passwordSet !== "boolean";
+
+    if (passwordCheckError) {
+      console.error(
+        "[proxy] Gagal memeriksa status password:",
+        passwordResult.error?.message ?? "Hasil RPC tidak valid",
+      );
+
+      const { error: signOutError } = await supabase.auth.signOut({
+        scope: "local",
+      });
+
+      if (signOutError) {
+        request.cookies
+          .getAll()
+          .filter((cookie) => cookie.name.startsWith("sb-"))
+          .forEach((cookie) =>
+            supabaseResponse.cookies.set(cookie.name, "", {
+              path: "/",
+              maxAge: 0,
+            }),
+          );
+      }
+
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.search = "";
+      loginUrl.searchParams.set("reason", "service-error");
+
+      return redirectTo(loginUrl, 303);
+    }
+
+    if (passwordSet === false) {
+      const resetUrl = request.nextUrl.clone();
+      resetUrl.pathname = "/reset-password";
+      resetUrl.search = "";
+
+      return redirectTo(
+        resetUrl,
+        request.method === "POST" ? 303 : 307,
+      );
+    }
+  }
+
   // Pengguna yang sudah login tidak perlu melihat halaman login lagi.
   if (isAuthenticated && pathname === "/login") {
     const dashboardUrl = request.nextUrl.clone();

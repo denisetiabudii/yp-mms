@@ -39,5 +39,16 @@ export async function updatePasswordAction(
     return { error: "Gagal memperbarui kata sandi. Coba lagi atau minta tautan baru." };
   }
 
-  redirect("/dashboard");
+  const { error: signOutError } = await supabase.auth.signOut({
+    scope: "local",
+  });
+
+  if (signOutError) {
+    console.error("[reset-password] gagal mengakhiri sesi:", signOutError.message);
+    return {
+      error: "Kata sandi berhasil diubah, tetapi sesi belum dapat diakhiri. Silakan keluar dan masuk kembali.",
+    };
+  }
+
+  redirect("/login?reason=reset-success");
 }

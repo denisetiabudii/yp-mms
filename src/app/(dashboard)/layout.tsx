@@ -16,38 +16,48 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
   const session = await getSessionState();
 
   if (session.status === "anonymous") redirect("/login");
-  if (session.status === "blocked") return <AccountBlocked reason={session.reason} />;
+
+  if (session.status === "blocked") {
+    return <AccountBlocked reason={session.reason} />;
+  }
+
+  if (session.status === "error") {
+    return <AccountBlocked reason="service-error" />;
+  }
+
+  if (session.status === "password-pending") {
+    redirect("/reset-password");
+  }
 
   const { user } = session;
 
   // Akun undangan yang baru mengklik tautan harus membuat kata sandi dulu. Tanpa ini, setelah sesi
   // berakhir ia tidak bisa masuk lagi (tidak punya kata sandi) dan akunnya tampak "terdaftar" semu.
-  if (!user.passwordSet) redirect("/reset-password");
 
   return (
     <ToastProvider>
-    <SidebarProvider className="flex min-h-svh flex-col">
-      {/* NAVBAR: berada di bagian paling atas */}
-      <AppHeader
-        user={{ name: user.fullName, role: user.roleLabel }}
-        unreadCount={unreadNotifications}
-      />
+      <SidebarProvider className="flex min-h-svh flex-col">
+        {/* NAVBAR: berada di bagian paling atas */}
+        <AppHeader
+          user={{ name: user.fullName, role: user.roleLabel }}
+          unreadCount={unreadNotifications}
+        />
 
-      {/* DASHBOARD BODY: sidebar dan konten */}
-      <div className="flex min-h-0 flex-1">
-        <AppSidebar role={user.role} />
+        {/* DASHBOARD BODY: sidebar dan konten */}
+        <div className="flex min-h-0 flex-1">
+          <AppSidebar role={user.role} />
 
-        <SidebarInset className="min-h-0 min-w-0">
-          {/*
+          <SidebarInset className="min-h-0 min-w-0">
+            {/*
             pt-[6.5rem] = ruang untuk header fixed (h-16) + tombol sidebar
             mobile + jarak konten. Halaman TIDAK perlu lagi memberi pt-20.
           */}
-          <main className="min-w-0 flex-1 overflow-auto p-6 pt-[6.5rem]">
-            {children}
-          </main>
-        </SidebarInset>
-      </div>
-    </SidebarProvider>
+            <main className="min-w-0 flex-1 overflow-auto p-6 pt-[6.5rem]">
+              {children}
+            </main>
+          </SidebarInset>
+        </div>
+      </SidebarProvider>
     </ToastProvider>
   );
 }
