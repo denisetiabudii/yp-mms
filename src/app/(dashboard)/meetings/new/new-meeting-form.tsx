@@ -33,7 +33,21 @@ const primaryButton =
 
 const secondaryButton =
   "inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40";
-
+type MeetingMasterData = {
+  meetingTypes: {
+    id: string;
+    name: string;
+    sort_order: number;
+  }[];
+  orgNodes: {
+    id: string;
+    parent_id: string | null;
+    kind: string;
+    name: string;
+    code: string | null;
+    sort_order: number;
+  }[];
+};
 type AgendaDraft = {
   key: number;
   topic: string;
@@ -79,7 +93,9 @@ function Field({
         {required && <span className="ml-0.5 text-red-500">*</span>}
       </label>
       {children}
-      {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && !error && (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      )}
       {error && (
         <p id={`${id}-error`} role="alert" className="text-xs text-red-600">
           {error}
@@ -96,30 +112,42 @@ function Field({
 export function NewMeetingForm({
   initialDate,
   meeting,
+  masterData,
 }: {
   initialDate: string;
   meeting?: Meeting;
+  masterData?: MeetingMasterData;
 }) {
   const nextKey = React.useRef(meeting ? meeting.agenda.length + 1 : 2);
 
   const [title, setTitle] = React.useState(meeting?.title ?? "");
   const [purpose, setPurpose] = React.useState(meeting?.purpose ?? "");
-  const [typeId, setTypeId] = React.useState<string>(meeting?.typeId ?? MEETING_TYPES[0].id);
+  const [typeId, setTypeId] = React.useState<string>(
+    meeting?.typeId ?? masterData?.meetingTypes[0]?.id ?? MEETING_TYPES[0].id,
+  );
   const [unitId, setUnitId] = React.useState(meeting?.unitId ?? "");
-  const [departmentId, setDepartmentId] = React.useState(meeting?.departmentId ?? "");
+  const [departmentId, setDepartmentId] = React.useState(
+    meeting?.departmentId ?? "",
+  );
+  const [divisionId, setDivisionId] = React.useState("");
   const [date, setDate] = React.useState(meeting?.date ?? initialDate);
   const [startTime, setStartTime] = React.useState(meeting?.startTime ?? "");
   const [endTime, setEndTime] = React.useState(meeting?.endTime ?? "");
-  const [mode, setMode] = React.useState<MeetingMode>(meeting?.mode ?? "Luring");
+  const [mode, setMode] = React.useState<MeetingMode>(
+    meeting?.mode ?? "Luring",
+  );
   const [location, setLocation] = React.useState(meeting?.location ?? "");
   const [link, setLink] = React.useState(meeting?.link ?? "");
   const [leader, setLeader] = React.useState(meeting?.leader ?? "");
   const [notetaker, setNotetaker] = React.useState(meeting?.notetaker ?? "");
-  const [classification, setClassification] =
-    React.useState<Classification>(meeting?.classification ?? "Internal");
+  const [classification, setClassification] = React.useState<Classification>(
+    meeting?.classification ?? "Internal",
+  );
   const [participantIds, setParticipantIds] = React.useState<string[]>(() =>
     meeting
-      ? PEOPLE.filter((p) => meeting.participants.some((x) => x.name === p.name)).map((p) => p.id)
+      ? PEOPLE.filter((p) =>
+          meeting.participants.some((x) => x.name === p.name),
+        ).map((p) => p.id)
       : [],
   );
   const [agenda, setAgenda] = React.useState<AgendaDraft[]>(() =>
@@ -137,21 +165,73 @@ export function NewMeetingForm({
   const [saved, setSaved] = React.useState(false);
   const [reason, setReason] = React.useState("");
 
-  const departments = DEPARTMENTS.filter((d) => d.unitId === unitId);
+  // Master data dari Supabase untuk form baru.
+  // Halaman edit masih menggunakan data dummy sementara.
+  const meetingTypeOptions = masterData?.meetingTypes ?? MEETING_TYPES;
+
+  const unitOptions = masterData
+    ? masterData.orgNodes
+        .filter((node) => node.kind === "unit")
+        .map((node) => ({
+          id: node.id,
+          name: node.name,
+        }))
+    : UNITS;
+
+  const departments = masterData
+    ? masterData.orgNodes
+        .filter(
+          (node) => node.kind === "departemen" && node.parent_id === unitId,
+        )
+        .map((node) => ({
+          id: node.id,
+          name: node.name,
+        }))
+    : DEPARTMENTS.filter((department) => department.unitId === unitId);
+
+  const divisions = masterData
+    ? masterData.orgNodes
+        .filter(
+          (node) => node.kind === "divisi" && node.parent_id === departmentId,
+        )
+        .map((node) => ({
+          id: node.id,
+          name: node.name,
+        }))
+    : [];
 
   // Mode ubah: bandingkan dengan data asli untuk tahu apa yang berubah dan apakah alasan wajib.
   const diff = meeting
     ? describeMeetingChanges(meeting, {
-        title, purpose, typeId, date, startTime, endTime, mode, location, link, leader, notetaker, classification,
-        participantNames: PEOPLE.filter((p) => participantIds.includes(p.id)).map((p) => p.name),
-        agenda: agenda.map((a) => ({ topic: a.topic, owner: a.owner, duration: a.duration })),
+        title,
+        purpose,
+        typeId,
+        date,
+        startTime,
+        endTime,
+        mode,
+        location,
+        link,
+        leader,
+        notetaker,
+        classification,
+        participantNames: PEOPLE.filter((p) =>
+          participantIds.includes(p.id),
+        ).map((p) => p.name),
+        agenda: agenda.map((a) => ({
+          topic: a.topic,
+          owner: a.owner,
+          duration: a.duration,
+        })),
       })
     : null;
-  const needsReason = !!diff && (diff.scheduleChanged || diff.classificationChanged);
+  const needsReason =
+    !!diff && (diff.scheduleChanged || diff.classificationChanged);
 
   function handleUnitChange(value: string) {
     setUnitId(value);
-    setDepartmentId(""); // departemen milik unit lama tidak berlaku lagi
+    setDepartmentId("");
+    setDivisionId("");
   }
 
   function toggleParticipant(id: string) {
@@ -175,7 +255,9 @@ export function NewMeetingForm({
 
   function removeAgenda(key: number) {
     setAgenda((current) =>
-      current.length === 1 ? current : current.filter((item) => item.key !== key),
+      current.length === 1
+        ? current
+        : current.filter((item) => item.key !== key),
     );
   }
 
@@ -245,23 +327,37 @@ export function NewMeetingForm({
           <CardContent className="space-y-4 p-8 text-center">
             <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
             <h1 className="text-xl font-bold">
-              {meeting ? "Perubahan rapat lolos validasi" : "Data rapat lolos validasi"}
+              {meeting
+                ? "Perubahan rapat lolos validasi"
+                : "Data rapat lolos validasi"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              Form belum tersambung ke backend, jadi {meeting ? "perubahan" : "rapat"} ini belum benar-benar tersimpan.
+              Form belum tersambung ke backend, jadi{" "}
+              {meeting ? "perubahan" : "rapat"} ini belum benar-benar tersimpan.
             </p>
 
             {diff && diff.changes.length > 0 && (
               <ul className="mx-auto max-w-md list-disc space-y-1 rounded-lg bg-slate-50 py-3 pl-8 pr-4 text-left text-xs text-slate-600">
-                {diff.changes.map((c) => (<li key={c}>{c}</li>))}
+                {diff.changes.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
               </ul>
             )}
 
             <div className="flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href={meeting ? `/meetings/${meeting.id}` : "/meetings"} className={primaryButton}>
-                {meeting ? "Kembali ke detail rapat" : "Kembali ke daftar rapat"}
+              <Link
+                href={meeting ? `/meetings/${meeting.id}` : "/meetings"}
+                className={primaryButton}
+              >
+                {meeting
+                  ? "Kembali ke detail rapat"
+                  : "Kembali ke daftar rapat"}
               </Link>
-              <button type="button" onClick={() => setSaved(false)} className={secondaryButton}>
+              <button
+                type="button"
+                onClick={() => setSaved(false)}
+                className={secondaryButton}
+              >
                 Ubah lagi
               </button>
             </div>
@@ -286,7 +382,9 @@ export function NewMeetingForm({
         </Link>
 
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{meeting ? "Ubah Rapat" : "Buat Rapat"}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {meeting ? "Ubah Rapat" : "Buat Rapat"}
+          </h1>
           <p className="text-sm text-muted-foreground">
             Isi data rapat, peserta, dan agenda. Kolom bertanda{" "}
             <span className="text-red-500">*</span> wajib diisi.
@@ -311,13 +409,20 @@ export function NewMeetingForm({
           </CardHeader>
           <CardContent className="grid gap-5 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <Field id="field-title" label="Judul rapat" required error={errors.title}>
+              <Field
+                id="field-title"
+                label="Judul rapat"
+                required
+                error={errors.title}
+              >
                 <Input
                   id="field-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   aria-invalid={!!errors.title}
-                  aria-describedby={errors.title ? "field-title-error" : undefined}
+                  aria-describedby={
+                    errors.title ? "field-title-error" : undefined
+                  }
                   placeholder="Contoh: Rapat Koordinasi Program Ramadan"
                   maxLength={150}
                 />
@@ -344,7 +449,7 @@ export function NewMeetingForm({
                 onChange={(e) => setTypeId(e.target.value)}
                 className={controlClass}
               >
-                {MEETING_TYPES.map((t) => (
+                {meetingTypeOptions.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
                   </option>
@@ -367,7 +472,9 @@ export function NewMeetingForm({
               <select
                 id="field-classification"
                 value={classification}
-                onChange={(e) => setClassification(e.target.value as Classification)}
+                onChange={(e) =>
+                  setClassification(e.target.value as Classification)
+                }
                 className={controlClass}
               >
                 {CLASSIFICATIONS.map((c) => (
@@ -383,7 +490,11 @@ export function NewMeetingForm({
               label="Unit"
               required
               error={errors.unitId}
-              hint={meeting ? "Unit tidak dapat diubah agar nomor rapat tetap. Bila salah unit, batalkan lalu buat rapat baru." : undefined}
+              hint={
+                meeting
+                  ? "Unit tidak dapat diubah agar nomor rapat tetap. Bila salah unit, batalkan lalu buat rapat baru."
+                  : undefined
+              }
             >
               <select
                 id="field-unitId"
@@ -391,11 +502,13 @@ export function NewMeetingForm({
                 onChange={(e) => handleUnitChange(e.target.value)}
                 disabled={!!meeting}
                 aria-invalid={!!errors.unitId}
-                aria-describedby={errors.unitId ? "field-unitId-error" : undefined}
+                aria-describedby={
+                  errors.unitId ? "field-unitId-error" : undefined
+                }
                 className={controlClass}
               >
                 <option value="">Pilih unit…</option>
-                {UNITS.map((u) => (
+                {unitOptions.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
                   </option>
@@ -415,12 +528,17 @@ export function NewMeetingForm({
               <select
                 id="field-departmentId"
                 value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
+                onChange={(e) => {
+                  setDepartmentId(e.target.value);
+                  setDivisionId("");
+                }}
                 disabled={!!meeting || departments.length === 0}
                 className={`${controlClass} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
               >
                 <option value="">
-                  {unitId ? "Seluruh unit / tanpa departemen" : "Pilih unit dahulu"}
+                  {unitId
+                    ? "Seluruh unit / tanpa departemen"
+                    : "Pilih unit dahulu"}
                 </option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -429,14 +547,43 @@ export function NewMeetingForm({
                 ))}
               </select>
             </Field>
-
+            <Field
+              id="field-divisionId"
+              label="Divisi"
+              hint={
+                departmentId && divisions.length === 0
+                  ? "Departemen ini tidak memiliki divisi."
+                  : undefined
+              }
+            >
+              <select
+                id="field-divisionId"
+                value={divisionId}
+                onChange={(e) => setDivisionId(e.target.value)}
+                disabled={!!meeting || !departmentId || divisions.length === 0}
+                className={`${controlClass} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
+              >
+                <option value="">
+                  {departmentId ? "Tanpa divisi" : "Pilih departemen dahulu"}
+                </option>
+                {divisions.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 sm:col-span-2">
-              <p className="text-xs text-slate-500">{meeting ? "Nomor rapat" : "Pratinjau nomor rapat"}</p>
+              <p className="text-xs text-slate-500">
+                {meeting ? "Nomor rapat" : "Pratinjau nomor rapat"}
+              </p>
               <p className="mt-1 font-mono text-sm font-semibold text-blue-800">
                 {meeting ? meeting.number : numberPreview}
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                {meeting ? "Nomor rapat tetap dan tidak berubah." : "Nomor urut dibuat otomatis oleh sistem saat rapat disimpan."}
+                {meeting
+                  ? "Nomor rapat tetap dan tidak berubah."
+                  : "Nomor urut dibuat otomatis oleh sistem saat rapat disimpan."}
               </p>
             </div>
           </CardContent>
@@ -459,25 +606,39 @@ export function NewMeetingForm({
               />
             </Field>
 
-            <Field id="field-startTime" label="Mulai (WIB)" required error={errors.startTime}>
+            <Field
+              id="field-startTime"
+              label="Mulai (WIB)"
+              required
+              error={errors.startTime}
+            >
               <Input
                 id="field-startTime"
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
                 aria-invalid={!!errors.startTime}
-                aria-describedby={errors.startTime ? "field-startTime-error" : undefined}
+                aria-describedby={
+                  errors.startTime ? "field-startTime-error" : undefined
+                }
               />
             </Field>
 
-            <Field id="field-endTime" label="Selesai (WIB)" required error={errors.endTime}>
+            <Field
+              id="field-endTime"
+              label="Selesai (WIB)"
+              required
+              error={errors.endTime}
+            >
               <Input
                 id="field-endTime"
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 aria-invalid={!!errors.endTime}
-                aria-describedby={errors.endTime ? "field-endTime-error" : undefined}
+                aria-describedby={
+                  errors.endTime ? "field-endTime-error" : undefined
+                }
               />
             </Field>
 
@@ -507,7 +668,9 @@ export function NewMeetingForm({
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 aria-invalid={!!errors.location}
-                aria-describedby={errors.location ? "field-location-error" : undefined}
+                aria-describedby={
+                  errors.location ? "field-location-error" : undefined
+                }
                 placeholder="Contoh: Ruang Meeting Utama"
                 maxLength={120}
               />
@@ -539,13 +702,20 @@ export function NewMeetingForm({
           </CardHeader>
           <CardContent className="space-y-5 p-5">
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field id="field-leader" label="Pimpinan rapat" required error={errors.leader}>
+              <Field
+                id="field-leader"
+                label="Pimpinan rapat"
+                required
+                error={errors.leader}
+              >
                 <select
                   id="field-leader"
                   value={leader}
                   onChange={(e) => setLeader(e.target.value)}
                   aria-invalid={!!errors.leader}
-                  aria-describedby={errors.leader ? "field-leader-error" : undefined}
+                  aria-describedby={
+                    errors.leader ? "field-leader-error" : undefined
+                  }
                   className={controlClass}
                 >
                   <option value="">Pilih pimpinan…</option>
@@ -644,7 +814,9 @@ export function NewMeetingForm({
                   aria-label={`Topik agenda ${index + 1}`}
                   placeholder="Topik pembahasan"
                   value={item.topic}
-                  onChange={(e) => updateAgenda(item.key, { topic: e.target.value })}
+                  onChange={(e) =>
+                    updateAgenda(item.key, { topic: e.target.value })
+                  }
                   aria-invalid={index === 0 && !!errors.agenda}
                   maxLength={200}
                 />
@@ -652,7 +824,9 @@ export function NewMeetingForm({
                 <select
                   aria-label={`Pemilik agenda ${index + 1}`}
                   value={item.owner}
-                  onChange={(e) => updateAgenda(item.key, { owner: e.target.value })}
+                  onChange={(e) =>
+                    updateAgenda(item.key, { owner: e.target.value })
+                  }
                   className={controlClass}
                 >
                   <option value="">Pemilik agenda</option>
@@ -670,7 +844,9 @@ export function NewMeetingForm({
                   max={480}
                   placeholder="Menit"
                   value={item.duration}
-                  onChange={(e) => updateAgenda(item.key, { duration: e.target.value })}
+                  onChange={(e) =>
+                    updateAgenda(item.key, { duration: e.target.value })
+                  }
                 />
 
                 <button
@@ -691,7 +867,11 @@ export function NewMeetingForm({
               </p>
             )}
 
-            <button type="button" onClick={addAgenda} className={secondaryButton}>
+            <button
+              type="button"
+              onClick={addAgenda}
+              className={secondaryButton}
+            >
               <Plus className="size-4" />
               Tambah agenda
             </button>
@@ -706,16 +886,21 @@ export function NewMeetingForm({
             </CardHeader>
             <CardContent className="space-y-4 p-5">
               {diff.changes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Belum ada perubahan dari data semula.</p>
+                <p className="text-sm text-muted-foreground">
+                  Belum ada perubahan dari data semula.
+                </p>
               ) : (
                 <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
-                  {diff.changes.map((c) => (<li key={c}>{c}</li>))}
+                  {diff.changes.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
                 </ul>
               )}
 
               {diff.scheduleChanged && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  Jadwal atau tempat berubah: seluruh peserta akan menerima pemberitahuan perubahan.
+                  Jadwal atau tempat berubah: seluruh peserta akan menerima
+                  pemberitahuan perubahan.
                 </p>
               )}
 
@@ -732,7 +917,9 @@ export function NewMeetingForm({
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     aria-invalid={!!errors.reason}
-                    aria-describedby={errors.reason ? "field-reason-error" : undefined}
+                    aria-describedby={
+                      errors.reason ? "field-reason-error" : undefined
+                    }
                     className={textareaClass}
                     maxLength={300}
                   />
@@ -744,7 +931,10 @@ export function NewMeetingForm({
 
         {/* AKSI */}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Link href={meeting ? `/meetings/${meeting.id}` : "/meetings"} className={secondaryButton}>
+          <Link
+            href={meeting ? `/meetings/${meeting.id}` : "/meetings"}
+            className={secondaryButton}
+          >
             Batal
           </Link>
           <button
