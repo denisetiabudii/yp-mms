@@ -9,8 +9,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   mapUserDbError,
   validateAssignmentItems,
+  validateDeleteConfirmation,
   validateUserProfile,
   type AssignmentItem,
+  type UserRow,
 } from "@/lib/users-db";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -110,6 +112,42 @@ export async function setUserAssignmentsAction(userId: string, items: Assignment
   const { error } = await ctx.supabase.rpc("admin_set_user_assignments", { p_user: userId, p_items: clean });
 
   if (error) return fail(mapUserDbError(error));
+
+  refresh();
+
+  return { ok: true };
+}
+
+/**
+ * Hapus akun PERMANEN (tanpa perlu DBA). Pengamannya berlapis:
+ *  - hanya Super Admin, dan tidak bisa menghapus akun sendiri;
+ *  - konfirmasi (ketik email akun) diperiksa di SERVER terhadap data asli, bukan dipercaya dari klien;
+ *  - database menolak menghapus Super Admin aktif terakhir dan akun yang punya riwayat
+ *    (rapat/notulen/tugas, FK RESTRICT) agar riwayat tidak hilang: untuk itu pakai Nonaktifkan;
+ *  - penghapusan dicatat di audit log pada transaksi yang sama (gagal hapus = tidak ada catatan palsu).
+ */
+export async function deleteUserAction(userId: string, typedConfirmation: string): Promise<ActionResult> {
+  const ctx = await adminContext();
+
+  if (!ctx) return fail(NOT_ALLOWED);
+  if (!UUID_PATTERN.test(userId) || typeof typedConfirmation !== "string") return fail("Data tidak valid.");
+  if (userId === ctx.selfId) return fail("Anda tidak dapat menghapus akun sendiri.");
+
+  const { data, error: listError } = await ctx.supabase.rpc("admin_list_users");
+
+  if (listError) return fail(mapUserDbError(listError));
+
+  const user = ((data ?? []) as UserRow[]).find((row) => row.id === userId);
+
+  if (!user) return fail("Pengguna tidak ditemukan.");
+
+  if (!validateDeleteConfirmation(user.email || user.full_name, typedConfirmation)) {
+    return fail("Konfirmasi tidak cocok. Ketik email akun persis seperti yang tertera.");
+  }
+
+  const { error } = await ctx.supabase.rpc("admin_delete_user", { p_user: userId });
+
+  if (error) return fail(mapUserDbError(error, "delete"));
 
   refresh();
 

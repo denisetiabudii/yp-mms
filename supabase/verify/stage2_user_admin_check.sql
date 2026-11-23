@@ -6,6 +6,10 @@
 -- Tanpa "select ... into" (dashboard salah membacanya). Hasil akhir: satu baris
 -- 'SEMUA PENGUJIAN TAHAP 2A LOLOS'; blok yang gagal berhenti dengan 'GAGAL: ...'.
 -- =====================================================================
+-- CATATAN KOMPATIBILITAS (migrasi account_security): is_super_admin() kini juga memeriksa waktu terbit token
+-- ('iat') terhadap profiles.session_revoked_at. Sesi tiruan di skrip ini karena itu menyertakan 'iat' = sekarang;
+-- tanpa 'iat', pengguna yang pernah diubah admin dianggap sesinya dicabut dan pengujian gagal palsu
+-- ("Tidak berwenang").
 
 -- 1. Fungsi menolak pemanggil yang bukan Super Admin ------------------------
 do $$
@@ -15,7 +19,7 @@ begin
   if v_admin is null then raise exception 'GAGAL: belum ada Super Admin aktif di public.profiles'; end if;
 
   -- sesi tiruan: pengguna acak yang bukan siapa-siapa
-  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
 
   msg := null;
   begin
@@ -118,16 +122,8 @@ begin
   b_wkf_active := (select is_active from public.org_nodes where id = v_wkf);
 
   begin
-    -- Sesi tiruan sebagai Super Admin
-perform set_config(
-  'request.jwt.claims',
-  json_build_object(
-    'sub', v_admin,
-    'role', 'authenticated',
-    'iat', floor(extract(epoch from clock_timestamp()))::bigint
-  )::text,
-  true
-);
+    -- sesi tiruan sebagai Super Admin
+    perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
 
     -- nama dan NOID
     perform public.admin_update_user(v_admin, '  Nama   Uji  Admin ', ' YP-UJI ');

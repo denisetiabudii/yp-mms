@@ -19,14 +19,20 @@ export type UserRow = {
   email_confirmed_at: string | null;
   last_sign_in_at: string | null;
   created_at: string;
+  /** Sudah membuat kata sandi? (mengklik tautan undangan saja belum cukup) */
+  password_set: boolean;
 };
 
 export type UserStatus = "Aktif" | "Diundang" | "Nonaktif";
 
-/** Nonaktif > Diundang (diundang tetapi belum pernah masuk) > Aktif. */
-export function deriveUserStatus(row: Pick<UserRow, "is_active" | "invited_at" | "last_sign_in_at">): UserStatus {
+/**
+ * Nonaktif > Diundang > Aktif.
+ * "Diundang" = diundang tetapi BELUM membuat kata sandi. Mengklik tautan undangan sudah
+ * membuat sesi login, jadi "pernah masuk" tidak bisa dipakai sebagai tanda akun sudah aktif.
+ */
+export function deriveUserStatus(row: Pick<UserRow, "is_active" | "invited_at" | "password_set">): UserStatus {
   if (!row.is_active) return "Nonaktif";
-  if (!row.last_sign_in_at && row.invited_at) return "Diundang";
+  if (row.invited_at && !row.password_set) return "Diundang";
 
   return "Aktif";
 }
@@ -98,20 +104,26 @@ export function validateAssignmentItems(items: unknown): string | null {
   return null;
 }
 
-/** Validasi nama lengkap dan NOID (aturan sama dengan fungsi admin_update_user di database). */
-export function validateUserProfile(fullName: string, employeeNo: string) {
+/** Aturan sama dengan fungsi admin_update_user di database. Dipisah per kolom agar kedua pesan bisa tampil sekaligus. */
+export function validateFullName(fullName: string) {
   const name = normalizeName(fullName);
 
-  if (name.length < 2 || name.length > 120) return "Nama lengkap harus 2–120 karakter.";
-  if (employeeNo.trim().length > 30) return "NOID maksimal 30 karakter.";
+  return name.length < 2 || name.length > 120 ? "Nama lengkap harus 2–120 karakter." : null;
+}
 
-  return null;
+export function validateEmployeeNo(employeeNo: string) {
+  return employeeNo.trim().length > 30 ? "NOID maksimal 30 karakter." : null;
+}
+
+/** Pesan pertama (nama dahulu), atau null bila keduanya valid. */
+export function validateUserProfile(fullName: string, employeeNo: string) {
+  return validateFullName(fullName) ?? validateEmployeeNo(employeeNo);
 }
 
 type DbError = { code?: string; message?: string } | null | undefined;
 
 /** Terjemahkan galat database/fungsi admin menjadi pesan pengguna; galat tak dikenal dibuat generik. */
-export function mapUserDbError(error: DbError) {
+export function mapUserDbError(error: DbError, context?: "delete") {
   const message = error?.message ?? "";
 
   switch (error?.code) {
@@ -121,13 +133,17 @@ export function mapUserDbError(error: DbError) {
       if (message.includes("employee_no")) return "NOID sudah dipakai pengguna lain.";
       return "Ada penugasan ganda.";
     case "23503":
-      return "Unit atau jabatan tidak ditemukan.";
+      return context === "delete"
+        ? "Akun ini memiliki riwayat (rapat, notulen, atau tugas) sehingga tidak dapat dihapus permanen. Gunakan Nonaktifkan agar riwayatnya tetap utuh."
+        : "Unit atau jabatan tidak ditemukan.";
     case "23502":
       return "Data tidak lengkap.";
     case "22P02":
       return "Data tidak valid.";
     case "P0001":
       return message || "Terjadi kesalahan. Coba lagi.";
+    case "42883":
+      return "Fungsi database belum terpasang. Jalankan migrasi terbaru di Supabase.";
     default:
       return "Terjadi kesalahan. Coba lagi.";
   }
@@ -147,29 +163,61 @@ export type InviteInput = {
   items: AssignmentItem[];
 };
 
-/**
- * Validasi undangan. Dipakai klien dan Server Action; menerima nilai apa pun
- * (data dari klien tidak dipercaya), jadi tipe diperiksa saat runtime.
- */
-export function validateInvite(input: unknown): string | null {
+export type InviteField = "email" | "fullName" | "employeeNo" | "role" | "items";
+
+/** Kesalahan per kolom (kosong = valid). Menerima nilai apa pun karena data klien tidak dipercaya. */
+export function validateInviteFields(input: unknown): Partial<Record<InviteField, string>> {
   const data = input as Partial<InviteInput> | null;
+  const errors: Partial<Record<InviteField, string>> = {};
 
-  if (!data || typeof data !== "object") return "Data undangan tidak valid.";
-  if (typeof data.email !== "string" || typeof data.fullName !== "string") return "Data undangan tidak valid.";
-  if (typeof data.employeeNo !== "string" || typeof data.role !== "string") return "Data undangan tidak valid.";
+  if (!data || typeof data !== "object") return { email: "Data undangan tidak valid." };
 
-  const email = normalizeEmail(data.email);
+  const email = typeof data.email === "string" ? normalizeEmail(data.email) : "";
 
-  if (!email) return "Email wajib diisi.";
-  if (email.length > 254 || !EMAIL_PATTERN.test(email)) return "Format email tidak valid.";
+  if (typeof data.email !== "string") errors.email = "Data undangan tidak valid.";
+  else if (!email) errors.email = "Email wajib diisi. Gunakan email aktif milik pengguna.";
+  else if (email.length > 254 || !EMAIL_PATTERN.test(email)) errors.email = "Format email tidak valid. Contoh: nama@perusahaan.org";
 
-  const profile = validateUserProfile(data.fullName, data.employeeNo);
+  if (typeof data.fullName !== "string") errors.fullName = "Data undangan tidak valid.";
+  else {
+    const problem = validateFullName(data.fullName);
 
-  if (profile) return profile;
-  if (!isAppRole(data.role)) return "Role tidak valid.";
-  if (!Array.isArray(data.items) || data.items.length === 0) return "Minimal satu penugasan wajib diisi.";
+    if (problem) errors.fullName = problem;
+  }
 
-  return validateAssignmentItems(data.items);
+  if (typeof data.employeeNo !== "string") errors.employeeNo = "Data undangan tidak valid.";
+  else {
+    const problem = validateEmployeeNo(data.employeeNo);
+
+    if (problem) errors.employeeNo = problem;
+  }
+
+  if (typeof data.role !== "string" || !isAppRole(data.role)) errors.role = "Pilih role aplikasi.";
+
+  if (!Array.isArray(data.items) || data.items.length === 0) errors.items = "Minimal satu penugasan wajib diisi (unit dan jabatan).";
+  else {
+    const problem = validateAssignmentItems(data.items);
+
+    if (problem) errors.items = problem;
+  }
+
+  return errors;
+}
+
+/** Pesan pertama dari validateInviteFields (urutan kolom di formulir), atau null bila valid. */
+export function validateInvite(input: unknown): string | null {
+  const errors = validateInviteFields(input);
+  const order: InviteField[] = ["fullName", "email", "employeeNo", "role", "items"];
+  const first = order.find((field) => errors[field]);
+
+  return first ? (errors[first] as string) : null;
+}
+
+/** Konfirmasi hapus: pengguna harus mengetik email akun (atau nama bila tanpa email) persis. */
+export function validateDeleteConfirmation(expected: string, typed: string) {
+  const a = expected.trim().toLowerCase();
+
+  return a.length > 0 && a === typed.trim().toLowerCase();
 }
 
 type InviteError = { status?: number; code?: string; message?: string } | null | undefined;

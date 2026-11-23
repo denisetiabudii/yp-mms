@@ -5,6 +5,7 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AccountBlocked } from "@/components/auth/account-blocked";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
+import { ToastProvider } from "@/components/feedback/toast-provider";
 import { getSessionState } from "@/lib/auth/session";
 
 // TODO: ganti dengan jumlah notifikasi belum dibaca dari database.
@@ -19,7 +20,12 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
 
   const { user } = session;
 
+  // Akun undangan yang baru mengklik tautan harus membuat kata sandi dulu. Tanpa ini, setelah sesi
+  // berakhir ia tidak bisa masuk lagi (tidak punya kata sandi) dan akunnya tampak "terdaftar" semu.
+  if (!user.passwordSet) redirect("/reset-password");
+
   return (
+    <ToastProvider>
     <SidebarProvider className="flex min-h-svh flex-col">
       {/* NAVBAR: berada di bagian paling atas */}
       <AppHeader
@@ -42,5 +48,6 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
         </SidebarInset>
       </div>
     </SidebarProvider>
+    </ToastProvider>
   );
 }

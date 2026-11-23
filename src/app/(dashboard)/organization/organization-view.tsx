@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/feedback/toast-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CHILD_KIND, countDescendants, findNode, type OrgKind, type OrgNode } from "@/lib/organization";
@@ -44,7 +45,6 @@ const secondaryButton =
   "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40";
 
 type Editing = { id: string; mode: "add" | "rename" } | null;
-type Notice = { tone: "success" | "error"; text: string };
 
 function validateNode(
   siblings: OrgNode[],
@@ -310,7 +310,9 @@ export function OrganizationView({
   const [code, setCode] = React.useState("");
   const [error, setError] = React.useState("");
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
-  const [notice, setNotice] = React.useState<Notice | null>(null);
+  const toast = useToast();
+  /** Hasil aksi tampil sebagai toast di layar (bukan banner di atas halaman yang bisa terlewat saat menggulir). */
+  const setNotice = (n: { tone: "success" | "error"; text: string }) => (n.tone === "error" ? toast.error(n.text) : toast.success(n.text));
 
   const [positionName, setPositionName] = React.useState("");
   const [positionError, setPositionError] = React.useState("");
@@ -489,16 +491,6 @@ export function OrganizationView({
         ))}
       </div>
 
-      {notice && (
-        <div
-          role={notice.tone === "error" ? "alert" : "status"}
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            notice.tone === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
-          }`}
-        >
-          {notice.text}
-        </div>
-      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="border-[#DBEAFE] shadow-sm">

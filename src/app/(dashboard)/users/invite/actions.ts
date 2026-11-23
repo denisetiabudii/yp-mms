@@ -11,14 +11,19 @@ import {
   mapInviteError,
   mapUserDbError,
   normalizeEmail,
-  validateInvite,
+  validateInviteFields,
+  type InviteField,
   type InviteInput,
   type UserRow,
 } from "@/lib/users-db";
 
-export type InviteResult = { ok: true; warning?: string } | { ok: false; error: string };
+/** `field` memberi tahu formulir kolom mana yang harus ditandai dan difokuskan. */
+export type InviteResult = { ok: true; warning?: string } | { ok: false; error: string; field?: InviteField };
 
-const fail = (error: string): InviteResult => ({ ok: false, error });
+const fail = (error: string, field?: InviteField): InviteResult => ({ ok: false, error, field });
+
+/** Urutan kolom di formulir: pesan pertama yang dikembalikan adalah kolom paling atas yang salah. */
+const FIELD_ORDER: InviteField[] = ["fullName", "email", "employeeNo", "role", "items"];
 const NOT_ALLOWED = "Anda tidak berwenang melakukan ini.";
 const NOT_CONFIGURED = "Fitur undangan belum aktif: kunci server Supabase belum diatur (SUPABASE_SECRET_KEY).";
 
@@ -39,9 +44,10 @@ async function requireSuperAdmin() {
 export async function inviteUserAction(input: InviteInput): Promise<InviteResult> {
   if (!(await requireSuperAdmin())) return fail(NOT_ALLOWED);
 
-  const problem = validateInvite(input);
+  const fieldErrors = validateInviteFields(input);
+  const badField = FIELD_ORDER.find((field) => fieldErrors[field]);
 
-  if (problem) return fail(problem);
+  if (badField) return fail(fieldErrors[badField] as string, badField);
 
   const admin = createAdminClient();
 
@@ -56,7 +62,10 @@ export async function inviteUserAction(input: InviteInput): Promise<InviteResult
 
   if (listError) return fail(mapUserDbError(listError));
   if (((existing ?? []) as UserRow[]).some((user) => (user.email ?? "").toLowerCase() === email)) {
-    return fail("Email ini sudah terdaftar.");
+    return fail(
+      "Email ini sudah terdaftar. Cari akun tersebut di daftar Pengguna; bila statusnya Diundang, gunakan tombol Kirim ulang.",
+      "email",
+    );
   }
 
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, { data: { full_name: fullName } });
@@ -64,7 +73,8 @@ export async function inviteUserAction(input: InviteInput): Promise<InviteResult
   if (error || !data?.user) {
     console.error("[undang] gagal:", error?.code ?? error?.status ?? "tanpa kode");
 
-    return fail(mapInviteError(error));
+    // Galat email (mis. kuota habis, alamat ditolak) ditempelkan ke kolom email agar langsung terlihat.
+    return fail(mapInviteError(error), "email");
   }
 
   const userId = data.user.id;
@@ -86,7 +96,19 @@ export async function inviteUserAction(input: InviteInput): Promise<InviteResult
     if (stepError) problems.push(`${label} gagal (${mapUserDbError(stepError)})`);
   }
 
-  // TODO: catat ke audit_logs (aktor, aksi "Undang", email) saat tabel audit tersedia.
+  // Catat di audit log (fungsi database memeriksa Super Admin dan menulis jejak yang tidak bisa dipalsukan).
+  const { error: auditError } = await supabase.rpc("admin_log_invite", {
+    p_email: email,
+    p_full_name: fullName,
+    p_role: input.role,
+    p_resend: false,
+  });
+
+  if (auditError) {
+    console.error("[undang] audit gagal:", auditError.code ?? "tanpa kode");
+    problems.push("pencatatan audit gagal");
+  }
+
   revalidatePath("/users");
   revalidatePath("/organization");
 
@@ -96,9 +118,9 @@ export async function inviteUserAction(input: InviteInput): Promise<InviteResult
 }
 
 /**
- * Kirim ulang undangan untuk pengguna berstatus Diundang.
- * PERHATIAN: dokumentasi Supabase tidak menjelaskan perilaku mengundang ulang email yang sudah
- * pernah diundang, jadi ini upaya terbaik: bila ditolak, pesan jujur dikembalikan (bukan pura-pura berhasil).
+ * Kirim ulang undangan untuk pengguna berstatus Diundang (belum membuat kata sandi).
+ * Teruji: setiap permintaan benar-benar mengirim email baru. Karena itu antarmuka memberi jeda
+ * 30 detik per pengguna, dan kuota email Supabase (SMTP bawaan) tetap perlu diperhatikan.
  */
 export async function resendInviteAction(userId: string): Promise<InviteResult> {
   if (!(await requireSuperAdmin())) return fail(NOT_ALLOWED);
@@ -125,6 +147,15 @@ export async function resendInviteAction(userId: string): Promise<InviteResult> 
 
     return fail(mapInviteError(error, true));
   }
+
+  const { error: auditError } = await supabase.rpc("admin_log_invite", {
+    p_email: user.email,
+    p_full_name: user.full_name,
+    p_role: user.role,
+    p_resend: true,
+  });
+
+  if (auditError) console.error("[kirim ulang undangan] audit gagal:", auditError.code ?? "tanpa kode");
 
   return { ok: true };
 }

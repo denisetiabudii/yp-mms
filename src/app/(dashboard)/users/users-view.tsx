@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MailPlus, Pencil, Plus, Search, ShieldCheck, Trash2, UserCheck, UserX, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/feedback/toast-provider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { APP_ROLES, ROLE_LABELS, type AppRole } from "@/lib/auth/roles";
@@ -13,12 +14,14 @@ import { formatDateTime } from "@/lib/minutes";
 import {
   MAX_ASSIGNMENTS,
   validateAssignmentItems,
+  validateDeleteConfirmation,
   validateUserProfile,
   type NodeOption,
   type UserStatus,
 } from "@/lib/users-db";
 
 import {
+  deleteUserAction,
   setUserActiveAction,
   setUserAssignmentsAction,
   updateUserProfileAction,
@@ -41,8 +44,6 @@ export type UserVM = {
 type PositionOption = { id: string; name: string; active: boolean };
 type DraftItem = { key: number; orgNodeId: string; positionId: string };
 type Draft = { name: string; employeeNo: string; items: DraftItem[] };
-type Notice = { tone: "success" | "error"; text: string };
-
 const selectClass =
   "h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
 const primaryButton =
@@ -77,7 +78,10 @@ export function UsersView({
   const [unit, setUnit] = React.useState("all");
   const [status, setStatus] = React.useState("all");
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
-  const [notice, setNotice] = React.useState<Notice | null>(null);
+  const toast = useToast();
+  const [cooldownIds, setCooldownIds] = React.useState<string[]>([]);
+  const [deleteId, setDeleteId] = React.useState<string | null>(null);
+  const [deleteTyped, setDeleteTyped] = React.useState("");
 
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<Draft | null>(null);
@@ -121,15 +125,13 @@ export function UsersView({
     });
   }
 
-  const showError = (text: string) => setNotice({ tone: "error", text });
-
   function changeRole(user: UserVM, next: AppRole) {
     if (next === user.role) return;
 
     run(
       () => updateUserRoleAction(user.id, next),
-      () => setNotice({ tone: "success", text: `Role ${user.name} diubah menjadi ${ROLE_LABELS[next]}.` }),
-      showError,
+      () => toast.success(`Role ${user.name} diubah menjadi ${ROLE_LABELS[next]}.`),
+      (message) => toast.error(`Role ${user.name} tidak diubah. ${message}`),
     );
   }
 
@@ -139,21 +141,49 @@ export function UsersView({
     run(
       () => setUserActiveAction(user.id, active),
       () =>
-        setNotice({
-          tone: "success",
-          text: active
+        toast.success(
+          active
             ? `${user.name} diaktifkan kembali.`
             : `${user.name} dinonaktifkan. Ia tidak dapat masuk lagi, tetapi riwayatnya tetap tersimpan.`,
-        }),
-      showError,
+        ),
+      (message) => toast.error(`${user.name} tidak ${active ? "diaktifkan" : "dinonaktifkan"}. ${message}`),
     );
   }
 
+  /** Setiap kirim ulang benar-benar mengirim email baru (kuota email terbatas), jadi diberi jeda 30 detik. */
   function resendInvite(user: UserVM) {
     run(
       () => resendInviteAction(user.id),
-      () => setNotice({ tone: "success", text: `Undangan dikirim ulang ke ${user.email}.` }),
-      showError,
+      () => {
+        toast.success(`Undangan dikirim ulang ke ${user.email}. Pengguna perlu membuka email terbaru.`);
+        setCooldownIds((current) => [...current, user.id]);
+        setTimeout(() => setCooldownIds((current) => current.filter((id) => id !== user.id)), 30_000);
+      },
+      (message) => toast.error(`Undangan ke ${user.email} tidak terkirim. ${message}`),
+    );
+  }
+
+  function askDelete(user: UserVM) {
+    setConfirmId(null);
+    setEditingId(null);
+    setDraft(null);
+    setDeleteId(user.id);
+    setDeleteTyped("");
+  }
+
+  function cancelDelete() {
+    setDeleteId(null);
+    setDeleteTyped("");
+  }
+
+  function confirmDelete(user: UserVM) {
+    run(
+      () => deleteUserAction(user.id, deleteTyped),
+      () => {
+        toast.success(`Akun ${user.name} dihapus permanen dan tercatat di audit log.`);
+        cancelDelete();
+      },
+      (message) => toast.error(`Akun ${user.name} tidak dihapus. ${message}`),
     );
   }
 
@@ -220,7 +250,7 @@ export function UsersView({
         }
       }
 
-      setNotice({ tone: "success", text: `Data ${normalizeName(draft.name)} diperbarui.` });
+      toast.success(`Data ${normalizeName(draft.name)} diperbarui.`);
       cancelEdit();
     });
   }
@@ -267,16 +297,6 @@ export function UsersView({
         ))}
       </div>
 
-      {notice && (
-        <div
-          role={notice.tone === "error" ? "alert" : "status"}
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            notice.tone === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
-          }`}
-        >
-          {notice.text}
-        </div>
-      )}
 
       <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
         <div className="space-y-3 border-b bg-[#F8FAFC] p-5">
@@ -392,11 +412,19 @@ export function UsersView({
                               Ubah
                             </button>
 
-                            {user.status === "Diundang" && (
-                              <button type="button" onClick={() => resendInvite(user)} disabled={pending} className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60">
-                                Kirim ulang
-                              </button>
-                            )}
+{user.status === "Diundang" && (
+  <button
+    type="button"
+    onClick={() => resendInvite(user)}
+    disabled={pending || cooldownIds.includes(user.id)}
+    title="Mengirim email undangan baru"
+    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+  >
+    {cooldownIds.includes(user.id)
+      ? "Terkirim (tunggu 30 dtk)"
+      : "Kirim ulang"}
+  </button>
+)}
 
                             {confirmId === user.id ? (
                               <div className="flex flex-col items-center gap-1.5">
@@ -419,9 +447,88 @@ export function UsersView({
                                 Nonaktifkan
                               </button>
                             )}
+
+                            <button
+                              type="button"
+                              onClick={() => askDelete(user)}
+                              disabled={pending || isSelf}
+                              title={isSelf ? "Tidak dapat menghapus akun sendiri" : "Hapus akun permanen"}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Trash2 className="size-3.5" />
+                              Hapus
+                            </button>
                           </div>
                         </td>
                       </tr>
+
+                      {deleteId === user.id && (
+                        <tr className="bg-red-50/60">
+                          <td colSpan={6} className="px-5 py-5">
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                if (validateDeleteConfirmation(user.email || user.name, deleteTyped)) confirmDelete(user);
+                              }}
+                              noValidate
+                              className="max-w-2xl space-y-3"
+                              aria-label={`Hapus akun ${user.name}`}
+                            >
+                              <p className="text-sm font-semibold text-red-800">Hapus akun {user.name} secara permanen?</p>
+
+                              <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-red-800">
+                                <li>Akun, akses login, dan penugasannya dihapus dan <strong>tidak dapat dikembalikan</strong>.</li>
+                                <li>Penghapusan tercatat di Audit Log (siapa, kapan, dan email yang dihapus).</li>
+                                <li>
+                                  Akun yang sudah punya riwayat (rapat, notulen, atau tugas) <strong>tidak dapat dihapus</strong> demi
+                                  menjaga riwayat; untuk itu gunakan <strong>Nonaktifkan</strong>.
+                                </li>
+                              </ul>
+
+                              <div className="space-y-1.5">
+                                <label htmlFor={`delete-confirm-${user.id}`} className="text-sm font-medium text-slate-700">
+                                  Ketik <span className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-red-700">{user.email || user.name}</span> untuk mengonfirmasi
+                                </label>
+                                <Input
+                                  id={`delete-confirm-${user.id}`}
+                                  value={deleteTyped}
+                                  onChange={(e) => setDeleteTyped(e.target.value)}
+                                  autoComplete="off"
+                                  autoCapitalize="none"
+                                  spellCheck={false}
+                                  autoFocus
+                                />
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="submit"
+                                  disabled={pending || !validateDeleteConfirmation(user.email || user.name, deleteTyped)}
+                                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <Trash2 className="size-4" />
+                                  {pending ? "Menghapus…" : "Hapus permanen"}
+                                </button>
+
+                                {user.status !== "Nonaktif" && !isSelf && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      cancelDelete();
+                                      setConfirmId(user.id);
+                                    }}
+                                    className={secondaryButton}
+                                  >
+                                    Nonaktifkan saja
+                                  </button>
+                                )}
+
+                                <button type="button" onClick={cancelDelete} disabled={pending} className={secondaryButton}>Batal</button>
+                              </div>
+                            </form>
+                          </td>
+                        </tr>
+                      )}
 
                       {editing && draft && (
                         <tr className="bg-blue-50/40">
