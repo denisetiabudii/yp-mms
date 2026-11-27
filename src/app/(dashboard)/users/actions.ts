@@ -97,6 +97,7 @@ export async function updateUserProfileAction(userId: string, fullName: string, 
   return { ok: true };
 }
 
+
 export async function setUserAssignmentsAction(userId: string, items: AssignmentItem[]): Promise<ActionResult> {
   const ctx = await adminContext();
 
@@ -107,9 +108,63 @@ export async function setUserAssignmentsAction(userId: string, items: Assignment
 
   if (problem) return fail(problem);
 
-  // Hanya dua field yang diteruskan (bukan objek mentah dari klien).
-  const clean = items.map((item) => ({ org_node_id: item.org_node_id, position_id: item.position_id }));
-  const { error } = await ctx.supabase.rpc("admin_set_user_assignments", { p_user: userId, p_items: clean });
+  // Ambil penugasan yang sudah tersimpan untuk membedakan data lama dan penugasan baru.
+  const { data: existingAssignments, error: existingError } = await ctx.supabase
+    .from("user_assignments")
+    .select("org_node_id, position_id")
+    .eq("user_id", userId);
+
+  if (existingError) return fail(mapUserDbError(existingError));
+
+  const existingKeys = new Set(
+    (existingAssignments ?? []).map(
+      (item) => `${item.org_node_id}|${item.position_id}`,
+    ),
+  );
+
+  // Hanya pasangan baru yang wajib memakai unit dan jabatan aktif.
+  const clean = items.map((item) => ({
+    org_node_id: item.org_node_id,
+    position_id: item.position_id,
+  }));
+
+  const newItems = clean.filter(
+    (item) => !existingKeys.has(`${item.org_node_id}|${item.position_id}`),
+  );
+
+  if (newItems.length > 0) {
+    const nodeIds = [...new Set(newItems.map((item) => item.org_node_id))];
+    const positionIds = [...new Set(newItems.map((item) => item.position_id))];
+
+    const [nodesResult, positionsResult] = await Promise.all([
+      ctx.supabase
+        .from("org_nodes")
+        .select("id")
+        .in("id", nodeIds)
+        .eq("is_active", true),
+      ctx.supabase
+        .from("positions")
+        .select("id")
+        .in("id", positionIds)
+        .eq("is_active", true),
+    ]);
+
+    if (nodesResult.error) return fail(mapUserDbError(nodesResult.error));
+    if (positionsResult.error) return fail(mapUserDbError(positionsResult.error));
+
+    if ((nodesResult.data ?? []).length !== nodeIds.length) {
+      return fail("Unit atau departemen tidak ditemukan atau sudah nonaktif.");
+    }
+
+    if ((positionsResult.data ?? []).length !== positionIds.length) {
+      return fail("Jabatan tidak ditemukan atau sudah nonaktif.");
+    }
+  }
+
+  const { error } = await ctx.supabase.rpc("admin_set_user_assignments", {
+    p_user: userId,
+    p_items: clean,
+  });
 
   if (error) return fail(mapUserDbError(error));
 

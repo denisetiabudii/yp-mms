@@ -2,7 +2,17 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { MailPlus, Pencil, Plus, Search, ShieldCheck, Trash2, UserCheck, UserX, Users } from "lucide-react";
+import {
+  MailPlus,
+  Pencil,
+  Plus,
+  Search,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  UserX,
+  Users,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/feedback/toast-provider";
@@ -94,7 +104,9 @@ export function UsersView({
   const keyword = search.trim().toLowerCase();
 
   const filtered = users.filter((user) => {
-    const haystack = [user.name, user.email, user.employeeNo].join(" ").toLowerCase();
+    const haystack = [user.name, user.email, user.employeeNo]
+      .join(" ")
+      .toLowerCase();
     const inUnit =
       unit === "all" ||
       user.assignments.some((a) => {
@@ -114,7 +126,11 @@ export function UsersView({
   const count = (s: UserStatus) => users.filter((u) => u.status === s).length;
 
   /** Jalankan Server Action; hasilnya dimuat ulang dari server lewat revalidatePath. */
-  function run(action: () => Promise<ActionResult>, onSuccess: () => void, onError: (message: string) => void) {
+  function run(
+    action: () => Promise<ActionResult>,
+    onSuccess: () => void,
+    onError: (message: string) => void,
+  ) {
     if (pending) return;
 
     startTransition(async () => {
@@ -130,7 +146,8 @@ export function UsersView({
 
     run(
       () => updateUserRoleAction(user.id, next),
-      () => toast.success(`Role ${user.name} diubah menjadi ${ROLE_LABELS[next]}.`),
+      () =>
+        toast.success(`Role ${user.name} diubah menjadi ${ROLE_LABELS[next]}.`),
       (message) => toast.error(`Role ${user.name} tidak diubah. ${message}`),
     );
   }
@@ -146,7 +163,10 @@ export function UsersView({
             ? `${user.name} diaktifkan kembali.`
             : `${user.name} dinonaktifkan. Ia tidak dapat masuk lagi, tetapi riwayatnya tetap tersimpan.`,
         ),
-      (message) => toast.error(`${user.name} tidak ${active ? "diaktifkan" : "dinonaktifkan"}. ${message}`),
+      (message) =>
+        toast.error(
+          `${user.name} tidak ${active ? "diaktifkan" : "dinonaktifkan"}. ${message}`,
+        ),
     );
   }
 
@@ -155,11 +175,18 @@ export function UsersView({
     run(
       () => resendInviteAction(user.id),
       () => {
-        toast.success(`Undangan dikirim ulang ke ${user.email}. Pengguna perlu membuka email terbaru.`);
+        toast.success(
+          `Undangan dikirim ulang ke ${user.email}. Pengguna perlu membuka email terbaru.`,
+        );
         setCooldownIds((current) => [...current, user.id]);
-        setTimeout(() => setCooldownIds((current) => current.filter((id) => id !== user.id)), 30_000);
+        setTimeout(
+          () =>
+            setCooldownIds((current) => current.filter((id) => id !== user.id)),
+          30_000,
+        );
       },
-      (message) => toast.error(`Undangan ke ${user.email} tidak terkirim. ${message}`),
+      (message) =>
+        toast.error(`Undangan ke ${user.email} tidak terkirim. ${message}`),
     );
   }
 
@@ -180,7 +207,9 @@ export function UsersView({
     run(
       () => deleteUserAction(user.id, deleteTyped),
       () => {
-        toast.success(`Akun ${user.name} dihapus permanen dan tercatat di audit log.`);
+        toast.success(
+          `Akun ${user.name} dihapus permanen dan tercatat di audit log.`,
+        );
         cancelDelete();
       },
       (message) => toast.error(`Akun ${user.name} tidak dihapus. ${message}`),
@@ -194,7 +223,11 @@ export function UsersView({
     setDraft({
       name: user.name,
       employeeNo: user.employeeNo,
-      items: user.assignments.map((a) => ({ key: draftKey.current++, orgNodeId: a.orgNodeId, positionId: a.positionId })),
+      items: user.assignments.map((a) => ({
+        key: draftKey.current++,
+        orgNodeId: a.orgNodeId,
+        positionId: a.positionId,
+      })),
     });
   }
 
@@ -206,7 +239,14 @@ export function UsersView({
 
   function updateItem(key: number, patch: Partial<DraftItem>) {
     setDraft((current) =>
-      current ? { ...current, items: current.items.map((i) => (i.key === key ? { ...i, ...patch } : i)) } : current,
+      current
+        ? {
+            ...current,
+            items: current.items.map((i) =>
+              i.key === key ? { ...i, ...patch } : i,
+            ),
+          }
+        : current,
     );
     setDraftError("");
   }
@@ -221,23 +261,38 @@ export function UsersView({
       return setDraftError("Setiap penugasan wajib memiliki unit dan jabatan.");
     }
 
-    const items = draft.items.map((i) => ({ org_node_id: i.orgNodeId, position_id: i.positionId }));
+    const items = draft.items.map((i) => ({
+      org_node_id: i.orgNodeId,
+      position_id: i.positionId,
+    }));
     const itemsProblem = validateAssignmentItems(items);
 
     if (itemsProblem) return setDraftError(itemsProblem);
 
     const sig = (list: { org_node_id: string; position_id: string }[]) =>
-      JSON.stringify(list.map((i) => `${i.org_node_id}|${i.position_id}`).sort());
-    const before = user.assignments.map((a) => ({ org_node_id: a.orgNodeId, position_id: a.positionId }));
+      JSON.stringify(
+        list.map((i) => `${i.org_node_id}|${i.position_id}`).sort(),
+      );
+    const before = user.assignments.map((a) => ({
+      org_node_id: a.orgNodeId,
+      position_id: a.positionId,
+    }));
 
-    const profileChanged = normalizeName(draft.name) !== user.name || draft.employeeNo.trim() !== user.employeeNo;
+    const profileChanged =
+      normalizeName(draft.name) !== user.name ||
+      draft.employeeNo.trim() !== user.employeeNo;
     const assignmentsChanged = sig(items) !== sig(before);
 
-    if (!profileChanged && !assignmentsChanged) return setDraftError("Belum ada perubahan untuk disimpan.");
+    if (!profileChanged && !assignmentsChanged)
+      return setDraftError("Belum ada perubahan untuk disimpan.");
 
     startTransition(async () => {
       if (profileChanged) {
-        const result = await updateUserProfileAction(user.id, draft.name, draft.employeeNo);
+        const result = await updateUserProfileAction(
+          user.id,
+          draft.name,
+          draft.employeeNo,
+        );
 
         if (!result.ok) return setDraftError(result.error);
       }
@@ -246,7 +301,11 @@ export function UsersView({
         const result = await setUserAssignmentsAction(user.id, items);
 
         if (!result.ok) {
-          return setDraftError(profileChanged ? `Profil tersimpan, tetapi penugasan gagal: ${result.error}` : result.error);
+          return setDraftError(
+            profileChanged
+              ? `Profil tersimpan, tetapi penugasan gagal: ${result.error}`
+              : result.error,
+          );
         }
       }
 
@@ -256,10 +315,34 @@ export function UsersView({
   }
 
   const summary = [
-    { label: "Total Pengguna", value: users.length, icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Aktif", value: count("Aktif"), icon: UserCheck, color: "text-emerald-600", bg: "bg-emerald-50" },
-    { label: "Menunggu Undangan", value: count("Diundang"), icon: MailPlus, color: "text-amber-600", bg: "bg-amber-50" },
-    { label: "Nonaktif", value: count("Nonaktif"), icon: UserX, color: "text-slate-600", bg: "bg-slate-100" },
+    {
+      label: "Total Pengguna",
+      value: users.length,
+      icon: Users,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+    },
+    {
+      label: "Aktif",
+      value: count("Aktif"),
+      icon: UserCheck,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
+    },
+    {
+      label: "Menunggu Undangan",
+      value: count("Diundang"),
+      icon: MailPlus,
+      color: "text-amber-600",
+      bg: "bg-amber-50",
+    },
+    {
+      label: "Nonaktif",
+      value: count("Nonaktif"),
+      icon: UserX,
+      color: "text-slate-600",
+      bg: "bg-slate-100",
+    },
   ];
 
   return (
@@ -268,7 +351,8 @@ export function UsersView({
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Pengguna</h1>
           <p className="text-sm text-muted-foreground">
-            Kelola akun, role, dan penugasan. Pengguna dibuat melalui undangan email.
+            Kelola akun, role, dan penugasan. Pengguna dibuat melalui undangan
+            email.
           </p>
         </div>
 
@@ -283,7 +367,10 @@ export function UsersView({
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summary.map((item) => (
-          <Card key={item.label} className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md">
+          <Card
+            key={item.label}
+            className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md"
+          >
             <CardContent className="flex items-center justify-between p-5">
               <div>
                 <p className="text-sm text-muted-foreground">{item.label}</p>
@@ -296,7 +383,6 @@ export function UsersView({
           </Card>
         ))}
       </div>
-
 
       <Card className="overflow-hidden border-[#DBEAFE] shadow-sm">
         <div className="space-y-3 border-b bg-[#F8FAFC] p-5">
@@ -312,20 +398,47 @@ export function UsersView({
               />
             </div>
 
-            <select aria-label="Filter role" value={role} onChange={(e) => setRole(e.target.value)} className={selectClass}>
+            <select
+              aria-label="Filter role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className={selectClass}
+            >
               <option value="all">Semua Role</option>
-              {APP_ROLES.map((r) => (<option key={r} value={r}>{ROLE_LABELS[r]}</option>))}
+              {APP_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </option>
+              ))}
             </select>
 
-            <select aria-label="Filter unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={selectClass}>
+            <select
+              aria-label="Filter unit"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              className={selectClass}
+            >
               <option value="all">Semua Unit</option>
               <option value="grup">Tingkat grup</option>
-              {unitOptions.map((u) => (<option key={u.id} value={u.id}>{u.label}</option>))}
+              {unitOptions.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.label}
+                </option>
+              ))}
             </select>
 
-            <select aria-label="Filter status" value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
+            <select
+              aria-label="Filter status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className={selectClass}
+            >
               <option value="all">Semua Status</option>
-              {STATUSES.map((s) => (<option key={s} value={s}>{s}</option>))}
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -335,11 +448,17 @@ export function UsersView({
             <table className="w-full min-w-[1050px] text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
-                  <th className="px-5 py-4 text-left font-semibold">Pengguna</th>
+                  <th className="px-5 py-4 text-left font-semibold">
+                    Pengguna
+                  </th>
                   <th className="px-5 py-4 text-left font-semibold">Role</th>
-                  <th className="px-5 py-4 text-left font-semibold">Penugasan</th>
+                  <th className="px-5 py-4 text-left font-semibold">
+                    Penugasan
+                  </th>
                   <th className="px-5 py-4 text-left font-semibold">Status</th>
-                  <th className="px-5 py-4 text-left font-semibold">Terakhir Masuk</th>
+                  <th className="px-5 py-4 text-left font-semibold">
+                    Terakhir Masuk
+                  </th>
                   <th className="px-5 py-4 text-center font-semibold">Aksi</th>
                 </tr>
               </thead>
@@ -355,22 +474,44 @@ export function UsersView({
                         <td className="px-5 py-4">
                           <p className="font-semibold text-slate-800">
                             {user.name}
-                            {isSelf && <span className="ml-2 text-xs font-normal text-blue-600">(Anda)</span>}
+                            {isSelf && (
+                              <span className="ml-2 text-xs font-normal text-blue-600">
+                                (Anda)
+                              </span>
+                            )}
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">{user.email}</p>
-                          {user.employeeNo && <p className="mt-0.5 text-xs text-slate-400">NOID {user.employeeNo}</p>}
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {user.email}
+                          </p>
+                          {user.employeeNo && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              NOID {user.employeeNo}
+                            </p>
+                          )}
                         </td>
 
                         <td className="px-5 py-4">
                           <select
                             aria-label={`Role ${user.name}`}
                             value={user.role}
-                            onChange={(e) => changeRole(user, e.target.value as AppRole)}
-                            disabled={pending || isSelf || user.status === "Nonaktif"}
-                            title={isSelf ? "Tidak dapat mengubah role akun sendiri" : undefined}
+                            onChange={(e) =>
+                              changeRole(user, e.target.value as AppRole)
+                            }
+                            disabled={
+                              pending || isSelf || user.status === "Nonaktif"
+                            }
+                            title={
+                              isSelf
+                                ? "Tidak dapat mengubah role akun sendiri"
+                                : undefined
+                            }
                             className={`${selectClass} h-8 text-xs`}
                           >
-                            {APP_ROLES.map((r) => (<option key={r} value={r}>{ROLE_LABELS[r]}</option>))}
+                            {APP_ROLES.map((r) => (
+                              <option key={r} value={r}>
+                                {ROLE_LABELS[r]}
+                              </option>
+                            ))}
                           </select>
                           {user.role === "super_admin" && (
                             <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-700">
@@ -382,15 +523,33 @@ export function UsersView({
 
                         <td className="px-5 py-4">
                           {user.assignments.length === 0 ? (
-                            <p className="text-xs text-amber-700">Belum ada penugasan</p>
+                            <p className="text-xs text-amber-700">
+                              Belum ada penugasan
+                            </p>
                           ) : (
                             <ul className="space-y-1 text-xs text-slate-600">
                               {user.assignments.map((a) => (
                                 <li key={`${a.orgNodeId}-${a.positionId}`}>
-                                  <span className="font-medium text-slate-700">{positionById.get(a.positionId)?.name ?? "—"}</span>
+                                  <span className="font-medium text-slate-700">
+                                    {positionById.get(a.positionId)?.name ??
+                                      "—"}
+                                  </span>
+                                  {positionById.get(a.positionId)?.active ===
+                                    false && (
+                                    <span className="text-slate-400">
+                                      {" "}
+                                      (nonaktif)
+                                    </span>
+                                  )}
                                   {" · "}
                                   {nodeById.get(a.orgNodeId)?.label ?? "—"}
-                                  {nodeById.get(a.orgNodeId)?.active === false && <span className="text-slate-400"> (nonaktif)</span>}
+                                  {nodeById.get(a.orgNodeId)?.active ===
+                                    false && (
+                                    <span className="text-slate-400">
+                                      {" "}
+                                      (nonaktif)
+                                    </span>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -398,50 +557,90 @@ export function UsersView({
                         </td>
 
                         <td className="px-5 py-4">
-                          <Badge variant="outline" className={statusStyles[user.status]}>{user.status}</Badge>
+                          <Badge
+                            variant="outline"
+                            className={statusStyles[user.status]}
+                          >
+                            {user.status}
+                          </Badge>
                         </td>
 
                         <td className="px-5 py-4 text-xs text-slate-600">
-                          {user.lastLogin ? formatDateTime(user.lastLogin) : "Belum pernah"}
+                          {user.lastLogin
+                            ? formatDateTime(user.lastLogin)
+                            : "Belum pernah"}
                         </td>
 
                         <td className="px-5 py-4 text-center">
                           <div className="flex flex-col items-center gap-1.5">
-                            <button type="button" onClick={() => startEdit(user)} disabled={pending} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700 disabled:opacity-60">
+                            <button
+                              type="button"
+                              onClick={() => startEdit(user)}
+                              disabled={pending}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition hover:bg-blue-50 hover:text-blue-700 disabled:opacity-60"
+                            >
                               <Pencil className="size-3.5" />
                               Ubah
                             </button>
 
-{user.status === "Diundang" && (
-  <button
-    type="button"
-    onClick={() => resendInvite(user)}
-    disabled={pending || cooldownIds.includes(user.id)}
-    title="Mengirim email undangan baru"
-    className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-  >
-    {cooldownIds.includes(user.id)
-      ? "Terkirim (tunggu 30 dtk)"
-      : "Kirim ulang"}
-  </button>
-)}
+                            {user.status === "Diundang" && (
+                              <button
+                                type="button"
+                                onClick={() => resendInvite(user)}
+                                disabled={
+                                  pending || cooldownIds.includes(user.id)
+                                }
+                                title="Mengirim email undangan baru"
+                                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {cooldownIds.includes(user.id)
+                                  ? "Terkirim (tunggu 30 dtk)"
+                                  : "Kirim ulang"}
+                              </button>
+                            )}
 
                             {confirmId === user.id ? (
                               <div className="flex flex-col items-center gap-1.5">
-                                <p className="text-xs text-slate-600">Nonaktifkan {user.name}?</p>
+                                <p className="text-xs text-slate-600">
+                                  Nonaktifkan {user.name}?
+                                </p>
                                 <div className="flex gap-1.5">
-                                  <button type="button" onClick={() => setActive(user, false)} disabled={pending} className="h-7 rounded-md bg-red-600 px-2.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60">Ya</button>
-                                  <button type="button" onClick={() => setConfirmId(null)} className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Batal</button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActive(user, false)}
+                                    disabled={pending}
+                                    className="h-7 rounded-md bg-red-600 px-2.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                                  >
+                                    Ya
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmId(null)}
+                                    className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                  >
+                                    Batal
+                                  </button>
                                 </div>
                               </div>
                             ) : user.status === "Nonaktif" ? (
-                              <button type="button" onClick={() => setActive(user, true)} disabled={pending} className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60">Aktifkan</button>
+                              <button
+                                type="button"
+                                onClick={() => setActive(user, true)}
+                                disabled={pending}
+                                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
+                              >
+                                Aktifkan
+                              </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => setConfirmId(user.id)}
                                 disabled={pending || isSelf}
-                                title={isSelf ? "Tidak dapat menonaktifkan akun sendiri" : undefined}
+                                title={
+                                  isSelf
+                                    ? "Tidak dapat menonaktifkan akun sendiri"
+                                    : undefined
+                                }
                                 className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Nonaktifkan
@@ -452,7 +651,11 @@ export function UsersView({
                               type="button"
                               onClick={() => askDelete(user)}
                               disabled={pending || isSelf}
-                              title={isSelf ? "Tidak dapat menghapus akun sendiri" : "Hapus akun permanen"}
+                              title={
+                                isSelf
+                                  ? "Tidak dapat menghapus akun sendiri"
+                                  : "Hapus akun permanen"
+                              }
                               className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               <Trash2 className="size-3.5" />
@@ -468,31 +671,57 @@ export function UsersView({
                             <form
                               onSubmit={(event) => {
                                 event.preventDefault();
-                                if (validateDeleteConfirmation(user.email || user.name, deleteTyped)) confirmDelete(user);
+                                if (
+                                  validateDeleteConfirmation(
+                                    user.email || user.name,
+                                    deleteTyped,
+                                  )
+                                )
+                                  confirmDelete(user);
                               }}
                               noValidate
                               className="max-w-2xl space-y-3"
                               aria-label={`Hapus akun ${user.name}`}
                             >
-                              <p className="text-sm font-semibold text-red-800">Hapus akun {user.name} secara permanen?</p>
+                              <p className="text-sm font-semibold text-red-800">
+                                Hapus akun {user.name} secara permanen?
+                              </p>
 
                               <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-red-800">
-                                <li>Akun, akses login, dan penugasannya dihapus dan <strong>tidak dapat dikembalikan</strong>.</li>
-                                <li>Penghapusan tercatat di Audit Log (siapa, kapan, dan email yang dihapus).</li>
                                 <li>
-                                  Akun yang sudah punya riwayat (rapat, notulen, atau tugas) <strong>tidak dapat dihapus</strong> demi
-                                  menjaga riwayat; untuk itu gunakan <strong>Nonaktifkan</strong>.
+                                  Akun, akses login, dan penugasannya dihapus
+                                  dan <strong>tidak dapat dikembalikan</strong>.
+                                </li>
+                                <li>
+                                  Penghapusan tercatat di Audit Log (siapa,
+                                  kapan, dan email yang dihapus).
+                                </li>
+                                <li>
+                                  Akun yang sudah punya riwayat (rapat, notulen,
+                                  atau tugas){" "}
+                                  <strong>tidak dapat dihapus</strong> demi
+                                  menjaga riwayat; untuk itu gunakan{" "}
+                                  <strong>Nonaktifkan</strong>.
                                 </li>
                               </ul>
 
                               <div className="space-y-1.5">
-                                <label htmlFor={`delete-confirm-${user.id}`} className="text-sm font-medium text-slate-700">
-                                  Ketik <span className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-red-700">{user.email || user.name}</span> untuk mengonfirmasi
+                                <label
+                                  htmlFor={`delete-confirm-${user.id}`}
+                                  className="text-sm font-medium text-slate-700"
+                                >
+                                  Ketik{" "}
+                                  <span className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-red-700">
+                                    {user.email || user.name}
+                                  </span>{" "}
+                                  untuk mengonfirmasi
                                 </label>
                                 <Input
                                   id={`delete-confirm-${user.id}`}
                                   value={deleteTyped}
-                                  onChange={(e) => setDeleteTyped(e.target.value)}
+                                  onChange={(e) =>
+                                    setDeleteTyped(e.target.value)
+                                  }
                                   autoComplete="off"
                                   autoCapitalize="none"
                                   spellCheck={false}
@@ -503,7 +732,13 @@ export function UsersView({
                               <div className="flex flex-wrap gap-2">
                                 <button
                                   type="submit"
-                                  disabled={pending || !validateDeleteConfirmation(user.email || user.name, deleteTyped)}
+                                  disabled={
+                                    pending ||
+                                    !validateDeleteConfirmation(
+                                      user.email || user.name,
+                                      deleteTyped,
+                                    )
+                                  }
                                   className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <Trash2 className="size-4" />
@@ -523,7 +758,14 @@ export function UsersView({
                                   </button>
                                 )}
 
-                                <button type="button" onClick={cancelDelete} disabled={pending} className={secondaryButton}>Batal</button>
+                                <button
+                                  type="button"
+                                  onClick={cancelDelete}
+                                  disabled={pending}
+                                  className={secondaryButton}
+                                >
+                                  Batal
+                                </button>
                               </div>
                             </form>
                           </td>
@@ -544,32 +786,79 @@ export function UsersView({
                             >
                               <div className="grid gap-4 sm:grid-cols-2">
                                 <div className="space-y-1.5">
-                                  <label htmlFor="edit-name" className="text-sm font-medium text-slate-700">Nama lengkap</label>
-                                  <Input id="edit-name" value={draft.name} onChange={(e) => { setDraft({ ...draft, name: e.target.value }); setDraftError(""); }} maxLength={120} />
+                                  <label
+                                    htmlFor="edit-name"
+                                    className="text-sm font-medium text-slate-700"
+                                  >
+                                    Nama lengkap
+                                  </label>
+                                  <Input
+                                    id="edit-name"
+                                    value={draft.name}
+                                    onChange={(e) => {
+                                      setDraft({
+                                        ...draft,
+                                        name: e.target.value,
+                                      });
+                                      setDraftError("");
+                                    }}
+                                    maxLength={120}
+                                  />
                                 </div>
                                 <div className="space-y-1.5">
-                                  <label htmlFor="edit-no" className="text-sm font-medium text-slate-700">NOID</label>
-                                  <Input id="edit-no" value={draft.employeeNo} onChange={(e) => { setDraft({ ...draft, employeeNo: e.target.value }); setDraftError(""); }} maxLength={30} />
+                                  <label
+                                    htmlFor="edit-no"
+                                    className="text-sm font-medium text-slate-700"
+                                  >
+                                    NOID
+                                  </label>
+                                  <Input
+                                    id="edit-no"
+                                    value={draft.employeeNo}
+                                    onChange={(e) => {
+                                      setDraft({
+                                        ...draft,
+                                        employeeNo: e.target.value,
+                                      });
+                                      setDraftError("");
+                                    }}
+                                    maxLength={30}
+                                  />
                                 </div>
                               </div>
 
                               <fieldset className="space-y-2">
-                                <legend className="text-sm font-medium text-slate-700">Penugasan</legend>
+                                <legend className="text-sm font-medium text-slate-700">
+                                  Penugasan
+                                </legend>
 
                                 {draft.items.map((item, index) => (
-                                  <div key={item.key} className="grid gap-2 sm:grid-cols-[1fr_14rem_2.25rem] sm:items-center">
+                                  <div
+                                    key={item.key}
+                                    className="grid gap-2 sm:grid-cols-[1fr_14rem_2.25rem] sm:items-center"
+                                  >
                                     <select
                                       aria-label={`Unit penugasan ${index + 1}`}
                                       value={item.orgNodeId}
-                                      onChange={(e) => updateItem(item.key, { orgNodeId: e.target.value })}
+                                      onChange={(e) =>
+                                        updateItem(item.key, {
+                                          orgNodeId: e.target.value,
+                                        })
+                                      }
                                       className={selectClass}
                                     >
-                                      <option value="">Pilih unit / departemen…</option>
+                                      <option value="">
+                                        Pilih unit / departemen…
+                                      </option>
                                       {nodeOptions
-                                        .filter((n) => n.active || n.id === item.orgNodeId)
+                                        .filter(
+                                          (n) =>
+                                            n.active || n.id === item.orgNodeId,
+                                        )
                                         .map((n) => (
                                           <option key={n.id} value={n.id}>
-                                            {n.label}{n.active ? "" : " (nonaktif)"}
+                                            {n.label}
+                                            {n.active ? "" : " (nonaktif)"}
                                           </option>
                                         ))}
                                     </select>
@@ -577,18 +866,38 @@ export function UsersView({
                                     <select
                                       aria-label={`Jabatan penugasan ${index + 1}`}
                                       value={item.positionId}
-                                      onChange={(e) => updateItem(item.key, { positionId: e.target.value })}
+                                      onChange={(e) =>
+                                        updateItem(item.key, {
+                                          positionId: e.target.value,
+                                        })
+                                      }
                                       className={selectClass}
                                     >
                                       <option value="">Pilih jabatan…</option>
                                       {positions
-                                        .filter((p) => p.active || p.id === item.positionId)
-                                        .map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                                        .filter(
+                                          (p) =>
+                                            p.active ||
+                                            p.id === item.positionId,
+                                        )
+                                        .map((p) => (
+                                          <option key={p.id} value={p.id}>
+                                            {p.name}
+                                            {p.active ? "" : " (nonaktif)"}
+                                          </option>
+                                        ))}
                                     </select>
 
                                     <button
                                       type="button"
-                                      onClick={() => setDraft({ ...draft, items: draft.items.filter((i) => i.key !== item.key) })}
+                                      onClick={() =>
+                                        setDraft({
+                                          ...draft,
+                                          items: draft.items.filter(
+                                            (i) => i.key !== item.key,
+                                          ),
+                                        })
+                                      }
                                       aria-label={`Hapus penugasan ${index + 1}`}
                                       className="inline-flex size-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
                                     >
@@ -598,13 +907,30 @@ export function UsersView({
                                 ))}
 
                                 {draft.items.length === 0 && (
-                                  <p className="text-xs text-amber-700">Tanpa penugasan, pengguna tidak punya cakupan unit.</p>
+                                  <p className="text-xs text-amber-700">
+                                    Tanpa penugasan, pengguna tidak punya
+                                    cakupan unit.
+                                  </p>
                                 )}
 
                                 <button
                                   type="button"
-                                  onClick={() => setDraft({ ...draft, items: [...draft.items, { key: draftKey.current++, orgNodeId: "", positionId: "" }] })}
-                                  disabled={draft.items.length >= MAX_ASSIGNMENTS}
+                                  onClick={() =>
+                                    setDraft({
+                                      ...draft,
+                                      items: [
+                                        ...draft.items,
+                                        {
+                                          key: draftKey.current++,
+                                          orgNodeId: "",
+                                          positionId: "",
+                                        },
+                                      ],
+                                    })
+                                  }
+                                  disabled={
+                                    draft.items.length >= MAX_ASSIGNMENTS
+                                  }
                                   className={secondaryButton}
                                 >
                                   <Plus className="size-4" />
@@ -612,13 +938,31 @@ export function UsersView({
                                 </button>
                               </fieldset>
 
-                              {draftError && <p role="alert" className="text-sm text-red-600">{draftError}</p>}
+                              {draftError && (
+                                <p
+                                  role="alert"
+                                  className="text-sm text-red-600"
+                                >
+                                  {draftError}
+                                </p>
+                              )}
 
                               <div className="flex gap-2">
-                                <button type="submit" disabled={pending} className={primaryButton}>
+                                <button
+                                  type="submit"
+                                  disabled={pending}
+                                  className={primaryButton}
+                                >
                                   {pending ? "Menyimpan…" : "Simpan"}
                                 </button>
-                                <button type="button" onClick={cancelEdit} disabled={pending} className={secondaryButton}>Batal</button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEdit}
+                                  disabled={pending}
+                                  className={secondaryButton}
+                                >
+                                  Batal
+                                </button>
                               </div>
                             </form>
                           </td>
@@ -630,8 +974,13 @@ export function UsersView({
 
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-muted-foreground">
-                      {users.length === 0 ? "Belum ada pengguna." : "Tidak ada pengguna yang sesuai dengan filter."}
+                    <td
+                      colSpan={6}
+                      className="py-12 text-center text-muted-foreground"
+                    >
+                      {users.length === 0
+                        ? "Belum ada pengguna."
+                        : "Tidak ada pengguna yang sesuai dengan filter."}
                     </td>
                   </tr>
                 )}
@@ -640,7 +989,9 @@ export function UsersView({
           </div>
 
           <div className="border-t bg-slate-50/70 px-5 py-3">
-            <p className="text-xs text-muted-foreground">Menampilkan {filtered.length} dari {users.length} pengguna</p>
+            <p className="text-xs text-muted-foreground">
+              Menampilkan {filtered.length} dari {users.length} pengguna
+            </p>
           </div>
         </CardContent>
       </Card>
