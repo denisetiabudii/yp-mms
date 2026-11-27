@@ -18,15 +18,21 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/feedback/toast-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { CHILD_KIND, countDescendants, findNode, type OrgKind, type OrgNode } from "@/lib/organization";
+import {
+  CHILD_KIND,
+  countDescendants,
+  findNode,
+  type OrgKind,
+  type OrgNode,
+} from "@/lib/organization";
 import { CODE_PATTERN } from "@/lib/org-validation";
 
 import {
   addOrgNodeAction,
   addPositionAction,
-  removePositionAction,
   renameOrgNodeAction,
   setOrgNodeActiveAction,
+  setPositionActiveAction,
   type ActionResult,
 } from "./actions";
 
@@ -57,14 +63,17 @@ function validateNode(
   const cleanCode = code.trim();
   const others = siblings.filter((s) => s.id !== selfId);
 
-  if (cleanName.length < 2 || cleanName.length > 80) return "Nama harus 2–80 karakter.";
+  if (cleanName.length < 2 || cleanName.length > 80)
+    return "Nama harus 2–80 karakter.";
   if (others.some((s) => s.name.toLowerCase() === cleanName.toLowerCase())) {
     return `Sudah ada ${kind.toLowerCase()} dengan nama tersebut pada tingkat ini.`;
   }
 
   if (kind === "Unit" || kind === "Departemen") {
-    if (cleanCode && !CODE_PATTERN.test(cleanCode)) return "Kode terdiri dari 2–6 huruf kapital atau angka.";
-    if (cleanCode && others.some((s) => s.code === cleanCode)) return "Kode sudah dipakai pada tingkat ini.";
+    if (cleanCode && !CODE_PATTERN.test(cleanCode))
+      return "Kode terdiri dari 2–6 huruf kapital atau angka.";
+    if (cleanCode && others.some((s) => s.code === cleanCode))
+      return "Kode sudah dipakai pada tingkat ini.";
   }
 
   return "";
@@ -109,7 +118,8 @@ function TreeNode({
   const isRoot = node.kind === "Grup";
   const open = !ctx.collapsed.includes(node.id);
   const hasChildren = node.children.length > 0;
-  const members = node.kind === "Divisi" ? null : (ctx.memberCounts[node.id] ?? 0);
+  const members =
+    node.kind === "Divisi" ? null : (ctx.memberCounts[node.id] ?? 0);
   const childKind = CHILD_KIND[node.kind];
   const isEditingHere = ctx.editing?.id === node.id;
   const showCode = node.kind === "Unit" || node.kind === "Departemen";
@@ -121,7 +131,9 @@ function TreeNode({
     <li>
       <div
         className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${
-          node.active ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50"
+          node.active
+            ? "border-slate-200 bg-white"
+            : "border-slate-100 bg-slate-50"
         }`}
       >
         {hasChildren ? (
@@ -132,24 +144,39 @@ function TreeNode({
             aria-label={`${open ? "Ciutkan" : "Buka"} ${node.name}`}
             className={iconButton}
           >
-            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            {open ? (
+              <ChevronDown className="size-4" />
+            ) : (
+              <ChevronRight className="size-4" />
+            )}
           </button>
         ) : (
           <span className="inline-block size-8" aria-hidden="true" />
         )}
 
-        <Badge variant="outline" className={kindStyles[node.kind]}>{node.kind}</Badge>
+        <Badge variant="outline" className={kindStyles[node.kind]}>
+          {node.kind}
+        </Badge>
 
-        <span className={`font-medium ${node.active ? "text-slate-800" : "text-slate-400 line-through"}`}>
+        <span
+          className={`font-medium ${node.active ? "text-slate-800" : "text-slate-400 line-through"}`}
+        >
           {node.name}
         </span>
 
         {showCode && node.code && (
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">{node.code}</span>
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+            {node.code}
+          </span>
         )}
 
         {!node.active && (
-          <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-500">Nonaktif</Badge>
+          <Badge
+            variant="outline"
+            className="border-slate-200 bg-slate-100 text-slate-500"
+          >
+            Nonaktif
+          </Badge>
         )}
 
         {members !== null && (
@@ -165,7 +192,11 @@ function TreeNode({
             onClick={() => ctx.startEdit(node, "add")}
             disabled={!node.active}
             aria-label={`Tambah ${childKind.toLowerCase()} di bawah ${node.name}`}
-            title={node.active ? `Tambah ${childKind.toLowerCase()}` : "Aktifkan dulu untuk menambah"}
+            title={
+              node.active
+                ? `Tambah ${childKind.toLowerCase()}`
+                : "Aktifkan dulu untuk menambah"
+            }
             className={iconButton}
           >
             <Plus className="size-4" />
@@ -186,12 +217,21 @@ function TreeNode({
               {ctx.confirmId === node.id ? (
                 <span className="flex items-center gap-1.5 pl-1">
                   <span className="text-xs text-slate-600">
-                    Nonaktifkan{affected > 0 ? ` beserta ${affected} turunan` : ""}?
+                    Nonaktifkan
+                    {affected > 0 ? ` beserta ${affected} turunan` : ""}?
                   </span>
-                  <button type="button" onClick={() => ctx.setActive(node, false)} className="h-7 rounded-md bg-red-600 px-2.5 text-xs font-medium text-white hover:bg-red-700">
+                  <button
+                    type="button"
+                    onClick={() => ctx.setActive(node, false)}
+                    className="h-7 rounded-md bg-red-600 px-2.5 text-xs font-medium text-white hover:bg-red-700"
+                  >
                     Ya
                   </button>
-                  <button type="button" onClick={ctx.cancelConfirm} className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={ctx.cancelConfirm}
+                    className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
                     Batal
                   </button>
                 </span>
@@ -211,7 +251,11 @@ function TreeNode({
                   onClick={() => ctx.setActive(node, true)}
                   disabled={!parentActive}
                   aria-label={`Aktifkan ${node.name}`}
-                  title={parentActive ? "Aktifkan" : "Aktifkan induknya terlebih dahulu"}
+                  title={
+                    parentActive
+                      ? "Aktifkan"
+                      : "Aktifkan induknya terlebih dahulu"
+                  }
                   className={`${iconButton} hover:bg-emerald-50 hover:text-emerald-700`}
                 >
                   <Power className="size-4" />
@@ -232,12 +276,16 @@ function TreeNode({
           className="ml-10 mt-2 space-y-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3"
         >
           <p className="text-xs font-semibold text-blue-800">
-            {ctx.editing?.mode === "add" ? `Tambah ${childKind.toLowerCase()} baru` : `Ubah ${node.kind.toLowerCase()}`}
+            {ctx.editing?.mode === "add"
+              ? `Tambah ${childKind.toLowerCase()} baru`
+              : `Ubah ${node.kind.toLowerCase()}`}
           </p>
 
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="flex-1">
-              <label htmlFor="org-name" className="sr-only">Nama</label>
+              <label htmlFor="org-name" className="sr-only">
+                Nama
+              </label>
               <Input
                 id="org-name"
                 autoFocus
@@ -252,7 +300,9 @@ function TreeNode({
 
             {needsCode && (
               <div className="sm:w-36">
-                <label htmlFor="org-code" className="sr-only">Kode</label>
+                <label htmlFor="org-code" className="sr-only">
+                  Kode
+                </label>
                 <Input
                   id="org-code"
                   value={ctx.code}
@@ -265,26 +315,46 @@ function TreeNode({
             )}
 
             <div className="flex gap-2">
-              <button type="submit" disabled={ctx.pending} className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-60`}>
+              <button
+                type="submit"
+                disabled={ctx.pending}
+                className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-60`}
+              >
                 {ctx.pending ? "Menyimpan…" : "Simpan"}
               </button>
-              <button type="button" onClick={ctx.cancelEdit} className={secondaryButton}>Batal</button>
+              <button
+                type="button"
+                onClick={ctx.cancelEdit}
+                className={secondaryButton}
+              >
+                Batal
+              </button>
             </div>
           </div>
 
           {needsCode && (
             <p className="text-xs text-slate-500">
-              Kode dipakai pada nomor rapat. Mengubah kode hanya berlaku untuk rapat yang dibuat setelahnya.
+              Kode dipakai pada nomor rapat. Mengubah kode hanya berlaku untuk
+              rapat yang dibuat setelahnya.
             </p>
           )}
-          {ctx.error && <p id="org-error" role="alert" className="text-xs text-red-600">{ctx.error}</p>}
+          {ctx.error && (
+            <p id="org-error" role="alert" className="text-xs text-red-600">
+              {ctx.error}
+            </p>
+          )}
         </form>
       )}
 
       {hasChildren && open && (
         <ul className="ml-5 mt-2 space-y-2 border-l border-slate-200 pl-4">
           {node.children.map((child) => (
-            <TreeNode key={child.id} node={child} parentActive={node.active} ctx={ctx} />
+            <TreeNode
+              key={child.id}
+              node={child}
+              parentActive={node.active}
+              ctx={ctx}
+            />
           ))}
         </ul>
       )}
@@ -292,7 +362,12 @@ function TreeNode({
   );
 }
 
-type PositionRow = { id: string; name: string; used: number };
+type PositionRow = {
+  id: string;
+  name: string;
+  used: number;
+  active: boolean;
+};
 
 export function OrganizationView({
   tree,
@@ -312,7 +387,8 @@ export function OrganizationView({
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
   const toast = useToast();
   /** Hasil aksi tampil sebagai toast di layar (bukan banner di atas halaman yang bisa terlewat saat menggulir). */
-  const setNotice = (n: { tone: "success" | "error"; text: string }) => (n.tone === "error" ? toast.error(n.text) : toast.success(n.text));
+  const setNotice = (n: { tone: "success" | "error"; text: string }) =>
+    n.tone === "error" ? toast.error(n.text) : toast.success(n.text);
 
   const [positionName, setPositionName] = React.useState("");
   const [positionError, setPositionError] = React.useState("");
@@ -321,7 +397,11 @@ export function OrganizationView({
    * Jalankan Server Action. Data pohon datang dari props: setelah aksi berhasil,
    * revalidatePath di server memuat ulang halaman sehingga tampilan ikut berubah.
    */
-  function run(action: () => Promise<ActionResult>, onSuccess: () => void, onError: (message: string) => void) {
+  function run(
+    action: () => Promise<ActionResult>,
+    onSuccess: () => void,
+    onError: (message: string) => void,
+  ) {
     if (pending) return;
 
     startTransition(async () => {
@@ -338,7 +418,8 @@ export function OrganizationView({
     setCode(mode === "rename" ? (node.code ?? "") : "");
     setError("");
     setConfirmId(null);
-    if (mode === "add") setCollapsed((current) => current.filter((id) => id !== node.id));
+    if (mode === "add")
+      setCollapsed((current) => current.filter((id) => id !== node.id));
   }
 
   function cancelEdit() {
@@ -361,21 +442,33 @@ export function OrganizationView({
       run(
         () => addOrgNodeAction(target.id, name, code),
         () => {
-          setNotice({ tone: "success", text: `${kind} “${name.trim()}” ditambahkan di bawah ${target.name}.` });
+          setNotice({
+            tone: "success",
+            text: `${kind} “${name.trim()}” ditambahkan di bawah ${target.name}.`,
+          });
           cancelEdit();
         },
         setError,
       );
     } else {
       const parent = findParent(tree, target.id);
-      const problem = validateNode(parent?.children ?? [], target.id, target.kind, name, code);
+      const problem = validateNode(
+        parent?.children ?? [],
+        target.id,
+        target.kind,
+        name,
+        code,
+      );
 
       if (problem) return setError(problem);
 
       run(
         () => renameOrgNodeAction(target.id, name, code),
         () => {
-          setNotice({ tone: "success", text: `${target.kind} diperbarui menjadi “${name.trim()}”.` });
+          setNotice({
+            tone: "success",
+            text: `${target.kind} diperbarui menjadi “${name.trim()}”.`,
+          });
           cancelEdit();
         },
         setError,
@@ -404,7 +497,8 @@ export function OrganizationView({
 
     const value = positionName.trim();
 
-    if (value.length < 2 || value.length > 40) return setPositionError("Nama jabatan harus 2–40 karakter.");
+    if (value.length < 2 || value.length > 40)
+      return setPositionError("Nama jabatan harus 2–40 karakter.");
     if (positions.some((p) => p.name.toLowerCase() === value.toLowerCase())) {
       return setPositionError("Jabatan tersebut sudah ada.");
     }
@@ -420,10 +514,18 @@ export function OrganizationView({
     );
   }
 
-  function removePosition(position: PositionRow) {
+  function togglePositionActive(position: PositionRow) {
+    const nextActive = !position.active;
+
     run(
-      () => removePositionAction(position.id),
-      () => setNotice({ tone: "success", text: `Jabatan “${position.name}” dihapus dari daftar.` }),
+      () => setPositionActiveAction(position.id, nextActive),
+      () =>
+        setNotice({
+          tone: "success",
+          text: nextActive
+            ? `Jabatan “${position.name}” berhasil diaktifkan.`
+            : `Jabatan “${position.name}” berhasil dinonaktifkan.`,
+        }),
       (message) => setNotice({ tone: "error", text: message }),
     );
   }
@@ -438,7 +540,11 @@ export function OrganizationView({
     memberCounts,
     pending,
     toggleCollapse: (id) =>
-      setCollapsed((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id])),
+      setCollapsed((current) =>
+        current.includes(id)
+          ? current.filter((x) => x !== id)
+          : [...current, id],
+      ),
     startEdit,
     cancelEdit,
     setName: (value) => {
@@ -459,25 +565,55 @@ export function OrganizationView({
   };
 
   const summary = [
-    { label: "Unit Aktif", value: countByKind(tree, "Unit"), icon: Building2, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Departemen Aktif", value: countByKind(tree, "Departemen"), icon: Layers, color: "text-sky-600", bg: "bg-sky-50" },
-    { label: "Divisi Aktif", value: countByKind(tree, "Divisi"), icon: Layers, color: "text-slate-600", bg: "bg-slate-100" },
-    { label: "Jabatan", value: positions.length, icon: Briefcase, color: "text-purple-600", bg: "bg-purple-50" },
+    {
+      label: "Unit Aktif",
+      value: countByKind(tree, "Unit"),
+      icon: Building2,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+    },
+    {
+      label: "Departemen Aktif",
+      value: countByKind(tree, "Departemen"),
+      icon: Layers,
+      color: "text-sky-600",
+      bg: "bg-sky-50",
+    },
+    {
+      label: "Divisi Aktif",
+      value: countByKind(tree, "Divisi"),
+      icon: Layers,
+      color: "text-slate-600",
+      bg: "bg-slate-100",
+    },
+    {
+      label: "Jabatan",
+      value: positions.length,
+      icon: Briefcase,
+      color: "text-purple-600",
+      bg: "bg-purple-50",
+    },
   ];
 
   return (
     <div className="space-y-6" aria-busy={pending}>
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Struktur Organisasi</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Struktur Organisasi
+        </h1>
         <p className="text-sm text-muted-foreground">
-          Kelola unit, departemen, divisi, dan jabatan. Struktur bersifat dinamis; data lama dinonaktifkan,
-          bukan dihapus, agar riwayat rapat tetap utuh.
+          Kelola unit, departemen, divisi, dan jabatan. Struktur bersifat
+          dinamis; data lama dinonaktifkan, bukan dihapus, agar riwayat rapat
+          tetap utuh.
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summary.map((item) => (
-          <Card key={item.label} className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md">
+          <Card
+            key={item.label}
+            className="border-[#DBEAFE] border-t-2 border-t-blue-500 shadow-sm transition hover:shadow-md"
+          >
             <CardContent className="flex items-center justify-between p-5">
               <div>
                 <p className="text-sm text-muted-foreground">{item.label}</p>
@@ -491,13 +627,13 @@ export function OrganizationView({
         ))}
       </div>
 
-
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="border-[#DBEAFE] shadow-sm">
           <CardHeader className="border-b bg-[#F8FAFC]">
             <CardTitle className="text-base">Hierarki</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Angka di samping nama adalah jumlah pengguna aktif. Grup → Unit → Departemen → Divisi.
+              Angka di samping nama adalah jumlah pengguna aktif. Grup → Unit →
+              Departemen → Divisi.
             </p>
           </CardHeader>
           <CardContent className="p-5">
@@ -510,32 +646,67 @@ export function OrganizationView({
         <Card className="h-fit border-[#DBEAFE] shadow-sm">
           <CardHeader className="border-b bg-[#F8FAFC]">
             <CardTitle className="text-base">Master Jabatan</CardTitle>
-            <p className="text-xs text-muted-foreground">Jabatan berbeda dari role aplikasi.</p>
+            <p className="text-xs text-muted-foreground">
+              Jabatan berbeda dari role aplikasi.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
             <ul className="divide-y divide-slate-100">
               {positions.map((position) => (
-                <li key={position.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="text-sm text-slate-800">{position.name}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">{position.used} penugasan</span>
-                    <button
-                      type="button"
-                      onClick={() => removePosition(position)}
-                      disabled={position.used > 0 || pending}
-                      aria-label={`Hapus jabatan ${position.name}`}
-                      title={position.used > 0 ? "Masih dipakai penugasan pengguna" : "Hapus"}
-                      className={`${iconButton} hover:bg-red-50 hover:text-red-600`}
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  </span>
+                <li
+                  key={position.id}
+                  className="flex items-center justify-between gap-3 py-3"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium text-slate-800">
+                      {position.name}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={
+                          position.active
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-100 text-slate-500"
+                        }
+                      >
+                        {position.active ? "Aktif" : "Nonaktif"}
+                      </Badge>
+                      <span className="text-xs text-slate-500">
+                        {position.used} penugasan
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => togglePositionActive(position)}
+                    disabled={pending}
+                    aria-label={`${position.active ? "Nonaktifkan" : "Aktifkan"} jabatan ${position.name}`}
+                    title={
+                      position.active
+                        ? "Nonaktifkan jabatan"
+                        : "Aktifkan jabatan"
+                    }
+                    className={`${iconButton} ${
+                      position.active
+                        ? "hover:bg-amber-50 hover:text-amber-600"
+                        : "hover:bg-emerald-50 hover:text-emerald-600"
+                    }`}
+                  >
+                    <Power className="size-4" />
+                  </button>
                 </li>
               ))}
             </ul>
 
             <form onSubmit={addPosition} noValidate className="space-y-2">
-              <label htmlFor="position-name" className="text-sm font-medium text-slate-700">Tambah jabatan</label>
+              <label
+                htmlFor="position-name"
+                className="text-sm font-medium text-slate-700"
+              >
+                Tambah jabatan
+              </label>
               <div className="flex gap-2">
                 <Input
                   id="position-name"
@@ -545,14 +716,28 @@ export function OrganizationView({
                     setPositionError("");
                   }}
                   aria-invalid={!!positionError}
-                  aria-describedby={positionError ? "position-error" : undefined}
+                  aria-describedby={
+                    positionError ? "position-error" : undefined
+                  }
                   maxLength={40}
                 />
-                <button type="submit" disabled={pending} className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-60`}>
+                <button
+                  type="submit"
+                  disabled={pending}
+                  className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-60`}
+                >
                   Tambah
                 </button>
               </div>
-              {positionError && <p id="position-error" role="alert" className="text-xs text-red-600">{positionError}</p>}
+              {positionError && (
+                <p
+                  id="position-error"
+                  role="alert"
+                  className="text-xs text-red-600"
+                >
+                  {positionError}
+                </p>
+              )}
             </form>
           </CardContent>
         </Card>

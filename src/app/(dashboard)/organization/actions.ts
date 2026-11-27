@@ -151,14 +151,23 @@ export async function addPositionAction(name: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-/** Jabatan yang masih dipakai penugasan ditolak database (FK restrict) → pesan jelas. */
-export async function removePositionAction(id: string): Promise<ActionResult> {
+/** Mengubah status jabatan tanpa menghapus jabatan atau riwayat penugasannya. */
+
+export async function setPositionActiveAction(
+  id: string,
+  isActive: boolean,
+): Promise<ActionResult> {
   const supabase = await adminClient();
 
   if (!supabase) return fail("Anda tidak berwenang melakukan ini.");
   if (!UUID_PATTERN.test(id)) return fail("Data tidak valid.");
+  if (typeof isActive !== "boolean") return fail("Status jabatan tidak valid.");
 
-  const { data, error } = await supabase.from("positions").delete().eq("id", id).select("id");
+  const { data, error } = await supabase
+    .from("positions")
+    .update({ is_active: isActive })
+    .eq("id", id)
+    .select("id");
 
   if (error) return fail(mapOrgDbError(error));
   if (!data || data.length === 0) return fail(NOT_FOUND);

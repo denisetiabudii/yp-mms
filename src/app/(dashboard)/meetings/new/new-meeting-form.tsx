@@ -13,12 +13,16 @@ import {
   MEETING_TYPES,
   PEOPLE,
   UNITS,
-  previewMeetingNumber,
   describeMeetingChanges,
   type Classification,
   type Meeting,
   type MeetingMode,
 } from "@/lib/meetings";
+import {
+  createMeetingAction,
+  getMeetingCandidatesAction,
+  type CreateMeetingInput,
+} from "./actions";
 
 /* ----------------------------- Gaya bersama ----------------------------- */
 
@@ -165,6 +169,10 @@ export function NewMeetingForm({
   const [saved, setSaved] = React.useState(false);
   const [reason, setReason] = React.useState("");
 
+  const [submitError, setSubmitError] = React.useState("");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [successNumber, setSuccessNumber] = React.useState("");
+
   // Master data dari Supabase untuk form baru.
   // Halaman edit masih menggunakan data dummy sementara.
   const meetingTypeOptions = masterData?.meetingTypes ?? MEETING_TYPES;
@@ -227,11 +235,88 @@ export function NewMeetingForm({
     : null;
   const needsReason =
     !!diff && (diff.scheduleChanged || diff.classificationChanged);
+  const [candidateScope, setCandidateScope] = React.useState("");
+  const [candidateResult, setCandidateResult] = React.useState<
+    | { ok: true; candidates: { id: string; full_name: string }[] }
+    | { ok: false; error: string }
+    | null
+  >(null);
+
+  const currentCandidateScope = meeting
+    ? ""
+    : `${unitId}|${departmentId}|${divisionId}`;
+
+  React.useEffect(() => {
+    if (meeting || !unitId) return;
+
+    let active = true;
+
+    const scope = `${unitId}|${departmentId}|${divisionId}`;
+
+    getMeetingCandidatesAction(unitId, departmentId, divisionId)
+      .then((result) => {
+        if (!active) return;
+
+        setCandidateScope(scope);
+        setCandidateResult(result);
+      })
+      .catch(() => {
+        if (!active) return;
+
+        setCandidateScope(scope);
+        setCandidateResult({
+          ok: false,
+          error: "Gagal memuat kandidat. Silakan coba lagi.",
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [meeting, unitId, departmentId, divisionId]);
+
+  const candidateLoading =
+    !!unitId && !meeting && candidateScope !== currentCandidateScope;
+
+  const candidates =
+    candidateScope === currentCandidateScope && candidateResult?.ok
+      ? candidateResult.candidates
+      : [];
+
+  const candidateError =
+    candidateScope === currentCandidateScope &&
+    candidateResult &&
+    !candidateResult.ok
+      ? candidateResult.error
+      : "";
+
+  function clearCandidateSelections() {
+    setLeader("");
+    setNotetaker("");
+    setParticipantIds([]);
+
+    setAgenda((current) => current.map((item) => ({ ...item, owner: "" })));
+  }
 
   function handleUnitChange(value: string) {
     setUnitId(value);
     setDepartmentId("");
     setDivisionId("");
+
+    if (!meeting) clearCandidateSelections();
+  }
+
+  function handleDepartmentChange(value: string) {
+    setDepartmentId(value);
+    setDivisionId("");
+
+    if (!meeting) clearCandidateSelections();
+  }
+
+  function handleDivisionChange(value: string) {
+    setDivisionId(value);
+
+    if (!meeting) clearCandidateSelections();
   }
 
   function toggleParticipant(id: string) {
@@ -295,30 +380,76 @@ export function NewMeetingForm({
     return next;
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isSubmitting) return;
 
     const result = validate();
     setErrors(result);
+    setSubmitError("");
 
     if (Object.keys(result).length > 0) {
-      // Fokuskan kolom pertama yang salah agar mudah diperbaiki.
       const firstId = Object.keys(result)[0];
       document.getElementById(`field-${firstId}`)?.focus();
       return;
     }
 
-    // TODO: simpan ke Supabase lewat Server Action (validasi ulang di server,
-    // nomor rapat dibuat database, rekam audit_logs, kirim notifikasi undangan).
-    setSaved(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
+    // Mode edit belum diintegrasikan dengan backend.
+    // Pertahankan perilaku lama tanpa mengubah data rapat.
+    if (meeting) {
+      setSaved(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
 
-  const numberPreview = previewMeetingNumber(
-    unitId,
-    departmentId || undefined,
-    date,
-  );
+    const input: CreateMeetingInput = {
+      title,
+      purpose,
+      typeId,
+      unitId,
+      departmentId,
+      divisionId,
+      classification,
+      date,
+      startTime,
+      endTime,
+      mode,
+      location,
+      link,
+      leaderId: leader,
+      notetakerId: notetaker,
+      agenda: agenda
+        .filter((item) => item.topic.trim())
+        .map((item) => ({
+          topic: item.topic.trim(),
+          ownerId: item.owner,
+          duration: item.duration,
+        })),
+      participantIds,
+    };
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await createMeetingAction(input);
+
+      if (!response.ok) {
+        setSubmitError(response.error);
+        return;
+      }
+
+      setSuccessNumber(response.meetingNumber);
+      setSaved(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      setSubmitError(
+        "Terjadi kesalahan saat menyimpan rapat. Silakan coba lagi.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   if (saved) {
     return (
@@ -329,12 +460,21 @@ export function NewMeetingForm({
             <h1 className="text-xl font-bold">
               {meeting
                 ? "Perubahan rapat lolos validasi"
-                : "Data rapat lolos validasi"}
+                : "Rapat berhasil disimpan"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              Form belum tersambung ke backend, jadi{" "}
-              {meeting ? "perubahan" : "rapat"} ini belum benar-benar tersimpan.
+              {meeting
+                ? "Perubahan telah melewati validasi form."
+                : successNumber
+                  ? "Rapat berhasil disimpan dengan nomor resmi:"
+                  : "Rapat berhasil disimpan, tetapi nomor rapat belum dapat ditampilkan."}
             </p>
+
+            {!meeting && successNumber && (
+              <p className="font-mono text-lg font-bold text-blue-700">
+                {successNumber}
+              </p>
+            )}
 
             {diff && diff.changes.length > 0 && (
               <ul className="mx-auto max-w-md list-disc space-y-1 rounded-lg bg-slate-50 py-3 pl-8 pr-4 text-left text-xs text-slate-600">
@@ -393,6 +533,14 @@ export function NewMeetingForm({
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="space-y-6">
+        {submitError && (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {submitError}
+          </div>
+        )}
         {errorCount > 0 && (
           <div
             role="alert"
@@ -528,10 +676,7 @@ export function NewMeetingForm({
               <select
                 id="field-departmentId"
                 value={departmentId}
-                onChange={(e) => {
-                  setDepartmentId(e.target.value);
-                  setDivisionId("");
-                }}
+                onChange={(e) => handleDepartmentChange(e.target.value)}
                 disabled={!!meeting || departments.length === 0}
                 className={`${controlClass} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
               >
@@ -559,7 +704,7 @@ export function NewMeetingForm({
               <select
                 id="field-divisionId"
                 value={divisionId}
-                onChange={(e) => setDivisionId(e.target.value)}
+                onChange={(e) => handleDivisionChange(e.target.value)}
                 disabled={!!meeting || !departmentId || divisions.length === 0}
                 className={`${controlClass} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
               >
@@ -575,15 +720,15 @@ export function NewMeetingForm({
             </Field>
             <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 sm:col-span-2">
               <p className="text-xs text-slate-500">
-                {meeting ? "Nomor rapat" : "Pratinjau nomor rapat"}
+                {meeting ? "Nomor rapat" : "Nomor rapat"}
               </p>
               <p className="mt-1 font-mono text-sm font-semibold text-blue-800">
-                {meeting ? meeting.number : numberPreview}
+                {meeting ? meeting.number : "Dibuat setelah disimpan"}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {meeting
                   ? "Nomor rapat tetap dan tidak berubah."
-                  : "Nomor urut dibuat otomatis oleh sistem saat rapat disimpan."}
+                  : "Nomor resmi akan ditampilkan setelah rapat berhasil disimpan."}
               </p>
             </div>
           </CardContent>
@@ -707,6 +852,15 @@ export function NewMeetingForm({
                 label="Pimpinan rapat"
                 required
                 error={errors.leader}
+                hint={
+                  !meeting && candidateLoading
+                    ? "Memuat kandidat berdasarkan scope organisasi..."
+                    : !meeting && candidateError
+                      ? candidateError
+                      : !meeting && candidates.length === 0
+                        ? "Belum ada kandidat aktif pada scope ini."
+                        : undefined
+                }
               >
                 <select
                   id="field-leader"
@@ -716,14 +870,24 @@ export function NewMeetingForm({
                   aria-describedby={
                     errors.leader ? "field-leader-error" : undefined
                   }
+                  disabled={
+                    !meeting && (candidateLoading || candidates.length === 0)
+                  }
                   className={controlClass}
                 >
-                  <option value="">Pilih pimpinan…</option>
-                  {PEOPLE.map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name} — {p.position}
-                    </option>
-                  ))}
+                  <option value="">Pilih pimpinan...</option>
+
+                  {meeting
+                    ? PEOPLE.map((person) => (
+                        <option key={person.id} value={person.name}>
+                          {person.name} — {person.position}
+                        </option>
+                      ))
+                    : candidates.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.full_name}
+                        </option>
+                      ))}
                 </select>
               </Field>
 
@@ -736,14 +900,24 @@ export function NewMeetingForm({
                   id="field-notetaker"
                   value={notetaker}
                   onChange={(e) => setNotetaker(e.target.value)}
+                  disabled={
+                    !meeting && (candidateLoading || candidates.length === 0)
+                  }
                   className={controlClass}
                 >
                   <option value="">Belum ditetapkan</option>
-                  {PEOPLE.map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name} — {p.position}
-                    </option>
-                  ))}
+
+                  {meeting
+                    ? PEOPLE.map((person) => (
+                        <option key={person.id} value={person.name}>
+                          {person.name} — {person.position}
+                        </option>
+                      ))
+                    : candidates.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.full_name}
+                        </option>
+                      ))}
                 </select>
               </Field>
             </div>
@@ -757,33 +931,61 @@ export function NewMeetingForm({
               </legend>
 
               <div className="mt-2 grid max-h-60 gap-1 overflow-y-auto rounded-lg border border-slate-200 p-2 sm:grid-cols-2">
-                {PEOPLE.map((person) => {
-                  const checked = participantIds.includes(person.id);
+                {candidateLoading && !meeting ? (
+                  <p className="col-span-full p-3 text-sm text-muted-foreground">
+                    Memuat daftar kandidat...
+                  </p>
+                ) : candidateError && !meeting ? (
+                  <p className="col-span-full p-3 text-sm text-red-600">
+                    {candidateError}
+                  </p>
+                ) : !meeting && candidates.length === 0 ? (
+                  <p className="col-span-full p-3 text-sm text-muted-foreground">
+                    Belum ada kandidat aktif pada scope organisasi ini.
+                  </p>
+                ) : (
+                  (meeting
+                    ? PEOPLE.map((person) => ({
+                        id: person.id,
+                        name: person.name,
+                        position: person.position,
+                      }))
+                    : candidates.map((person) => ({
+                        id: person.id,
+                        name: person.full_name,
+                        position: "",
+                      }))
+                  ).map((person) => {
+                    const checked = participantIds.includes(person.id);
 
-                  return (
-                    <label
-                      key={person.id}
-                      className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-sm transition hover:bg-blue-50 ${
-                        checked ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleParticipant(person.id)}
-                        className="mt-0.5 size-4 rounded border-slate-300 accent-blue-600"
-                      />
-                      <span>
-                        <span className="block font-medium text-slate-800">
-                          {person.name}
+                    return (
+                      <label
+                        key={person.id}
+                        className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-sm transition hover:bg-blue-50 ${
+                          checked ? "bg-blue-50" : ""
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleParticipant(person.id)}
+                          className="mt-0.5 size-4 rounded border-slate-300 accent-blue-600"
+                        />
+
+                        <span>
+                          <span className="block font-medium text-slate-800">
+                            {person.name}
+                          </span>
+                          {person.position && (
+                            <span className="block text-xs text-muted-foreground">
+                              {person.position}
+                            </span>
+                          )}
                         </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {person.position}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
+                      </label>
+                    );
+                  })
+                )}
               </div>
             </fieldset>
           </CardContent>
@@ -827,14 +1029,24 @@ export function NewMeetingForm({
                   onChange={(e) =>
                     updateAgenda(item.key, { owner: e.target.value })
                   }
+                  disabled={
+                    !meeting && (candidateLoading || candidates.length === 0)
+                  }
                   className={controlClass}
                 >
                   <option value="">Pemilik agenda</option>
-                  {PEOPLE.map((p) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
+
+                  {meeting
+                    ? PEOPLE.map((person) => (
+                        <option key={person.id} value={person.name}>
+                          {person.name}
+                        </option>
+                      ))
+                    : candidates.map((person) => (
+                        <option key={person.id} value={person.id}>
+                          {person.full_name}
+                        </option>
+                      ))}
                 </select>
 
                 <Input
@@ -939,10 +1151,14 @@ export function NewMeetingForm({
           </Link>
           <button
             type="submit"
-            disabled={!!diff && diff.changes.length === 0}
+            disabled={isSubmitting || (!!diff && diff.changes.length === 0)}
             className={`${primaryButton} disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            {meeting ? "Simpan Perubahan" : "Simpan Rapat"}
+            {isSubmitting
+              ? "Menyimpan..."
+              : meeting
+                ? "Simpan Perubahan"
+                : "Simpan Rapat"}
           </button>
         </div>
       </form>

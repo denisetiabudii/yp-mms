@@ -57,6 +57,34 @@ export async function inviteUserAction(input: InviteInput): Promise<InviteResult
   const email = normalizeEmail(input.email);
   const fullName = normalizeName(input.fullName);
 
+  // Pastikan seluruh penugasan undangan memakai unit dan jabatan aktif.
+  const nodeIds = [...new Set(input.items.map((item) => item.org_node_id))];
+  const positionIds = [...new Set(input.items.map((item) => item.position_id))];
+
+  const [nodesResult, positionsResult] = await Promise.all([
+    supabase
+      .from("org_nodes")
+      .select("id")
+      .in("id", nodeIds)
+      .eq("is_active", true),
+    supabase
+      .from("positions")
+      .select("id")
+      .in("id", positionIds)
+      .eq("is_active", true),
+  ]);
+
+  if (nodesResult.error) return fail(mapUserDbError(nodesResult.error), "items");
+  if (positionsResult.error) return fail(mapUserDbError(positionsResult.error), "items");
+
+  if ((nodesResult.data ?? []).length !== nodeIds.length) {
+    return fail("Terdapat unit atau departemen yang tidak ditemukan atau sudah nonaktif.", "items");
+  }
+
+  if ((positionsResult.data ?? []).length !== positionIds.length) {
+    return fail("Terdapat jabatan yang tidak ditemukan atau sudah nonaktif.", "items");
+  }
+
   // Pra-cek duplikat agar pesannya jelas (Supabase tetap menolak bila lolos).
   const { data: existing, error: listError } = await supabase.rpc("admin_list_users");
 
